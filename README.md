@@ -100,6 +100,24 @@ python -m http.server 4180 --directory dist
 
 Abra http://127.0.0.1:4180. O build funciona também em subdiretórios do GitHub Pages. Páginas públicas de serviços têm HTML inicial próprio em `/servicos/advocacia/`, `/servicos/engenharia/` e `/servicos/ti/`.
 
+## Publicar a demonstração no Netlify
+
+O arquivo `netlify.toml` na raiz configura a publicação automaticamente ao conectar o repositório `Brunorsimas/MVP-solucoes`:
+
+| Configuração | Valor |
+| --- | --- |
+| Production branch | `main` |
+| Base directory | raiz do repositório (`.`) |
+| Build command | `npm run build` |
+| Publish directory | `dist` |
+| Node.js | `24` |
+
+Se um projeto já importado mostrar **Page not found**, execute um novo deploy do último commit depois de atualizar a configuração. O build cria `dist/index.html`; publicar a raiz do código-fonte ou deixar de executar o build não disponibiliza a página inicial correta.
+
+Para publicação manual por arrastar e soltar, execute `npm run build` localmente e envie a **pasta `dist`**, não a pasta do código-fonte.
+
+Não use `npm start` como comando de build. Ele inicia o servidor local e não gera os arquivos para publicação. O Netlify hospedará a demonstração estática, com dados no navegador; o servidor Node.js/SQLite não é implantado por essa configuração. A navegação da aplicação usa `#/...`, e as páginas públicas de serviços são arquivos HTML reais, sem necessidade de uma regra genérica que transforme todas as URLs em `index.html`.
+
 ## SEO
 
 - Títulos e descrições, HTML semântico, conteúdos por serviço, páginas públicas pré-renderizadas no build estático, imagens leves e interface adaptada ao celular.

@@ -1,0 +1,16 @@
+# Publish the browser-only MVP demonstration. The Node/SQLite server is local.
+[build]
+  base = "."
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    X-Frame-Options = "DENY"
+    X-Robots-Tag = "noindex, nofollow"
