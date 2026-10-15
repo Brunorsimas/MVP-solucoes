@@ -11,7 +11,7 @@ cd E:\Devs\Projetos\Albinur\mvp-solucoes
 npm start
 ```
 
-Abra **http://127.0.0.1:4173**. Em **Entrar → Experimentar**, escolha um perfil. Para acompanhar os dois lados de um chamado, use **Trocar perfil**. Os dados ficam em `data/mvp.sqlite`; reiniciar o servidor preserva os registros.
+Abra **http://127.0.0.1:4173**. Em **Entrar**, use o login `user` e a senha `123` para testar como cliente. Para acompanhar o lado do especialista, use **Trocar conta** e entre com o login correspondente, também com a senha `123`. Os dados ficam em `data/mvp.sqlite`; reiniciar o servidor preserva os registros.
 
 O servidor fica restrito ao computador local por padrão. O expediente de demonstração é **10h**, claramente indicado na interface, para permitir testes em qualquer horário. Para usar o relógio real:
 
@@ -24,17 +24,19 @@ O expediente real aceita solicitações de **08:00 até antes das 19:00**, no fu
 
 ## Equipe de demonstração
 
-| Perfil | Especialidades |
-| --- | --- |
-| Ana Oliveira | Cliente fictícia para testes |
-| Tayane | Advocacia geral |
-| Miguel | Direito criminal |
-| Feuzer | Advocacia geral |
-| Marcos | Engenharia civil |
-| Maria | Engenharia civil |
-| Bruno | Suporte, conserto e montagem de computadores; administrador |
-| Stefanny | Desenvolvimento de software |
-| Kleber | Engenharia de dados e suporte técnico |
+| Login | Perfil | Especialidades |
+| --- | --- | --- |
+| `user` | user | Cliente fictício para testes |
+| `tayane` | Tayane | Advocacia geral |
+| `miguel` | Miguel | Direito criminal |
+| `feuzer` | Feuzer | Advocacia geral |
+| `marcos` | Marcos | Engenharia civil |
+| `maria` | Maria | Engenharia civil |
+| `bruno` | Bruno | Suporte, conserto e montagem de computadores; administrador |
+| `stefanny` | Stefanny | Desenvolvimento de software |
+| `kleber` | Kleber | Engenharia de dados e suporte técnico |
+
+**Senha temporária de todas as contas acima: `123`.** Esses acessos funcionam no modo demonstrativo local e na versão estática do Netlify/GitHub Pages. `DEMO_MODE=0` desativa o acesso temporário no servidor. Novas contas cadastradas no servidor continuam exigindo senhas de pelo menos 10 caracteres.
 
 Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos ou avaliações inventadas. Todos estão inicialmente disponíveis nas regiões do piloto; a cobertura individual precisa ser validada antes de uso real.
 
@@ -44,7 +46,8 @@ Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos 
 - Páginas de setores, diretório de especialistas, busca por nome/especialidade, ajuda, termos e privacidade.
 - Formulário em três etapas, perguntas por serviço e rascunho no navegador.
 - Cadastro de clientes, login por senha com hash scrypt e cookies HttpOnly; recuperação simulada em ambiente de teste.
-- Perfis demonstrativos selecionáveis para experimentar cliente, especialista e administrador.
+- Login temporário por usuário e senha para cliente, especialista e administrador, sem seleção de perfis na tela de acesso.
+- Perfis profissionais apenas para exibição na página Especialistas; nenhuma escolha ou reserva de profissional ao solicitar atendimento.
 - Encaminhamento por especialidade, região, modalidade, disponibilidade e situação do perfil.
 - Aceite exclusivo e limite transacional de **dois chamados ativos por profissional**, incluindo projetos de engenharia.
 - Chat privado com atualização a cada cinco segundos e histórico persistente no servidor local.
@@ -58,18 +61,19 @@ Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos 
 - Exportação do histórico em texto e download individual dos anexos.
 - Exclusão de mensagens e anexos após 30 dias do encerramento de cada conversa.
 - Notificações internas e indicação explícita de alertas externos simulados.
-- Avaliação interna de atendimentos concluídos, central de suporte, gestão de disponibilidade e suspensão de profissionais.
+- Convite visível para avaliar o especialista após a conclusão, com nota de 1 a 5, comentário opcional e uma avaliação por chamado.
+- Central de suporte, gestão de disponibilidade e suspensão de profissionais.
 - Painel administrativo com metadados operacionais e auditoria, sem leitura geral de chats privados.
 
 ## Roteiro para testar o fluxo completo
 
-1. Entre como **Ana Oliveira**. Crie um chamado em TI → Suporte técnico, Recife, remoto.
-2. Troque para **Bruno**, abra a fila e aceite o chamado. Envie uma mensagem e uma proposta.
-3. Troque para **Ana** e aprove a proposta. Combine um horário se desejar.
-4. Troque para **Bruno**, inicie a execução e registre a entrega.
-5. Troque para **Ana** e anexe um comprovante fictício em PDF, PNG ou JPG.
-6. Troque para **Bruno**, confirme o recebimento e conclua.
-7. Confira a data de expiração do histórico, exporte a conversa e experimente a avaliação como cliente.
+1. Entre com **user / 123**. Crie um chamado em TI → Suporte técnico, Recife, remoto. Não é possível escolher um especialista.
+2. Use **Trocar conta** e entre com **bruno / 123**. Abra a fila, aceite o chamado e envie uma mensagem e uma proposta.
+3. Entre novamente como **user / 123** e aprove a proposta. Combine um horário se desejar.
+4. Entre como **bruno / 123**, inicie a execução e registre a entrega.
+5. Entre como **user / 123** e anexe um comprovante fictício em PDF, PNG ou JPG.
+6. Entre como **bruno / 123**, confirme o recebimento e conclua.
+7. Entre como **user / 123**, abra o chamado concluído e clique em **Avaliar especialista**. Escolha de 1 a 5 estrelas e, se desejar, deixe um comentário. Confira também a data de expiração do histórico e exporte a conversa.
 
 Para testar a capacidade, abra três chamados compatíveis e tente aceitar os três com o mesmo profissional. O terceiro deve ser bloqueado. Para testar transferência, devolva um chamado antes da contratação e assuma com outro profissional compatível.
 
@@ -80,7 +84,7 @@ Para testar a capacidade, abra três chamados compatíveis e tente aceitar os tr
 | Servidor local (`npm start`) | SQLite no servidor; compartilhamento entre sessões autorizadas | Testar autenticação, permissões e fluxo funcional |
 | GitHub Pages (`npm run build`) | Somente localStorage/sessionStorage do navegador | Demonstrar interface e interações com dados fictícios |
 
-**A demonstração estática não é um backend multiusuário nem um ambiente seguro para dados reais.** Qualquer pessoa com acesso ao mesmo navegador pode acessar os dados de demonstração. O cadastro por senha exige o servidor local. Trocar de perfil simula os participantes de uma conversa.
+**A demonstração estática não é um backend multiusuário nem um ambiente seguro para dados reais.** Qualquer pessoa com acesso ao mesmo navegador pode acessar os dados de demonstração. O login temporário com senha `123` funciona nesta demonstração; o cadastro de novas contas exige o servidor local. Trocar de conta simula os participantes de uma conversa. Dados antigos são migrados sem apagar o histórico; a conta demonstrativa Ana passa a usar o login `user`.
 
 ## GitHub Pages
 

@@ -29,7 +29,10 @@ try {
   await cdp('Runtime.enable');
   await cdp('Page.navigate', { url: origin }); await wait('!!document.querySelector(".hero")');
   assert.equal(await evaluate('document.documentElement.dataset.mode'), 'static');
-  await evaluate('location.hash="/entrar"'); await wait('!!document.querySelector("[data-id=cliente]")'); await evaluate('document.querySelector("[data-action=demoLogin][data-id=cliente]").click()'); await wait('!!document.querySelector(".demo-banner")');
+  await evaluate('location.hash="/entrar"'); await wait('!!document.querySelector("#auth-form")');
+  await evaluate('document.querySelector("#login").value="user"; document.querySelector("#password").value="errada"; document.querySelector("#auth-form").requestSubmit()');
+  await wait('document.querySelector("#form-error")?.textContent.includes("inválidos")');
+  await evaluate('document.querySelector("#password").value="123"; document.querySelector("#auth-form").requestSubmit()'); await wait('!document.querySelector("#auth-form") && !!document.querySelector(".demo-banner")');
   assert.match(await evaluate('document.querySelector(".demo-banner").textContent'), /neste navegador/);
   await cdp('Page.navigate', { url: origin + 'servicos/ti/' }); await wait('!!document.querySelector(".page-head") && document.querySelector("h1")?.textContent === "Tecnologia da informação"');
   assert.equal(await evaluate('new URL(document.querySelector("link[rel=stylesheet]").href).pathname'), '/MVP-solucoes/styles.css');
@@ -37,7 +40,11 @@ try {
   await evaluate('document.querySelector("[data-action=chooseSector][data-id=advocacia]").click()');
   assert.equal(await evaluate('document.querySelector(".selection.selected").textContent.trim()'), 'Advocacia');
   await cdp('Page.reload'); await wait('!!document.querySelector(".user-trigger")');
-  assert.match(await evaluate('document.querySelector(".user-trigger").textContent'), /Ana/);
+  assert.match(await evaluate('document.querySelector(".user-trigger").textContent'), /user/);
+  await evaluate('location.hash="/especialistas"'); await wait('document.querySelectorAll(".expert-card").length === 8');
+  assert.equal(await evaluate('document.querySelectorAll(".expert-card a, .expert-card button").length'), 0);
+  await evaluate('location.hash="/servicos/ti"'); await wait('!!document.querySelector(".service-detail")');
+  assert.equal(await evaluate('document.querySelectorAll(".expert-card").length'), 0);
   assert.deepEqual(errors, []);
-  console.log('PASS: static build under repository subpath, local demo login, nested service page, sector change, session persistence, no JS exceptions.');
+  console.log('PASS: static build under repository subpath, password login, invalid-password feedback, nested service page, sector change, session persistence, display-only specialist directory, no JS exceptions.');
 } finally { await fetch(`${debug}/json/close/${target.id}`).catch(() => {}); socket.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

@@ -20,6 +20,14 @@ async function wait(expression, label = expression) { const end = Date.now() + 1
 async function click(selector) { await wait(`!!document.querySelector(${JSON.stringify(selector)})`, selector); await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`); }
 async function fill(form, values) { await evaluate(`(() => { const form=document.querySelector(${JSON.stringify(form)}); for(const [name,value] of Object.entries(${JSON.stringify(values)})){ const input=form.elements.namedItem(name); if(!input)throw new Error('Missing input '+name); if(input.type==='checkbox')input.checked=value;else input.value=value; input.dispatchEvent(new Event('input',{bubbles:true})); } })()`); }
 async function submit(form) { await evaluate(`document.querySelector(${JSON.stringify(form)}).requestSubmit()`); }
+function loginAs(login) {
+  return (async () => {
+    await wait('!!document.querySelector("#auth-form")');
+    await fill('#auth-form', { login, password: '123' });
+    await submit('#auth-form');
+    await wait(`!document.querySelector('#auth-form') && document.querySelector('.user-trigger strong')?.textContent.toLowerCase() === ${JSON.stringify(login)}`);
+  })();
+}
 async function navigate(route) { await evaluate(`location.hash=${JSON.stringify(route)}`); await new Promise(resolve => setTimeout(resolve, 150)); }
 async function screenshot(name, width, height) {
   await cdp('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 700 });
@@ -44,8 +52,8 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1080, deviceScaleFactor: 1, mobile: false });
   await navigate('/especialistas'); await wait('document.querySelectorAll(".expert-card").length===8');
   await click('[data-action="expertFilter"][data-id="ti"]'); assert.equal(await evaluate('document.querySelectorAll(".expert-card").length'), 3);
-  await click('[data-action="expert"][data-id="bruno"]'); await wait('document.querySelector("dialog").open'); await click('[data-action="closeModal"]'); checks.push('directory filters and profile dialog');
-  await navigate('/entrar'); await click('[data-action="demoLogin"][data-id="cliente"]'); await wait('!!document.querySelector(".user-trigger")');
+  assert.equal(await evaluate('document.querySelectorAll(".expert-card button, .expert-card a").length'), 0); checks.push('display-only specialist directory, filters, no selection buttons');
+  await navigate('/entrar'); await loginAs('user'); await wait('!!document.querySelector(".user-trigger")');
   await navigate('/novo'); await click('[data-action="chooseSector"][data-id="ti"]');
   await fill('#request-form', { service: 'Suporte técnico', region: 'PE', modality: 'Remoto', city: 'Recife' }); await submit('#request-form');
   await wait('!!document.querySelector("#description")');
@@ -53,7 +61,7 @@ try {
   await wait('!!document.querySelector("input[name=agreed]")'); await fill('#request-form', { agreed: true }); await submit('#request-form');
   await wait('location.hash.startsWith("#/chamado/") && !!document.querySelector(".ticket-detail-head")');
   const ticketRoute = await evaluate('location.hash.slice(1)'); checks.push('three-step request form creates a persisted ticket');
-  await click('[data-action="switchProfile"]'); await click('[data-action="demoLogin"][data-id="bruno"]');
+  await click('[data-action="switchProfile"]'); await loginAs('bruno');
   await wait('!!document.querySelector("[data-action=acceptTicket]")'); await click('[data-action="acceptTicket"]');
   await wait('!!document.querySelector("#message-form")');
   await fill('#message-form', { text: 'Olá! Vamos avaliar a conexão do seu notebook de teste.' }); await submit('#message-form');
@@ -62,24 +70,34 @@ try {
   await fill('#proposal-form', { scope: 'Diagnóstico remoto e configuração da conexão Wi-Fi.', exclusions: 'Peças e substituição de hardware.', amount: '150', deadline: 'Até 2 dias úteis', terms: 'Pagamento direto após a entrega', validity: '7 dias' }); await submit('#proposal-form');
   await wait('!!document.querySelector(".proposal-card") && !document.querySelector("dialog").open');
   await screenshot('ticket-desktop.png', 1440, 1080);
-  await click('[data-action="switchProfile"]'); await click('[data-action="demoLogin"][data-id="cliente"]'); await wait('!!document.querySelector("[data-action=approveProposal]")');
+  await click('[data-action="switchProfile"]'); await loginAs('user'); await wait('!!document.querySelector("[data-action=approveProposal]")');
   await click('[data-action="approveProposal"]'); await submit('#confirm-form'); await wait('!!document.querySelector(".badge.contracted")'); checks.push('professional acceptance, chat, proposal, exact-version client approval');
   await click('[data-action="appointment"]');
   const future = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) + 'T14:00';
   await fill('#appointment-form', { date: future, location: 'Reunião remota; link a combinar no chat.' }); await submit('#appointment-form');
   await wait('!!document.querySelector(".appointment") && !document.querySelector("dialog").open');
   await navigate('/agenda'); await wait('document.querySelector(".appointment")?.textContent.includes("Reunião remota")'); checks.push('appointment proposal and agenda');
-  await navigate(ticketRoute); await click('[data-action="switchProfile"]'); await click('[data-action="demoLogin"][data-id="bruno"]'); await wait('!!document.querySelector("[data-action=startService]")');
+  await navigate(ticketRoute); await click('[data-action="switchProfile"]'); await loginAs('bruno'); await wait('!!document.querySelector("[data-action=startService]")');
   await click('[data-action="appointmentYes"]'); await wait('document.querySelector(".appointment")?.textContent.includes("Confirmado")');
   await click('[data-action="startService"]'); await wait('!!document.querySelector("[data-action=deliver]")'); await click('[data-action="deliver"]'); await wait('!!document.querySelector(".badge.delivery")');
-  await click('[data-action="switchProfile"]'); await click('[data-action="demoLogin"][data-id="cliente"]'); await wait('!!document.querySelector("[data-action=attachReceipt]")');
+  await click('[data-action="switchProfile"]'); await loginAs('user'); await wait('!!document.querySelector("[data-action=attachReceipt]")');
   await click('[data-action="attachReceipt"]');
   await evaluate(`(() => {const dt = new DataTransfer(); dt.items.add(new File(['%PDF-1.4\\ncomprovante ficticio'], 'comprovante-teste.pdf', {type:'application/pdf'})); document.querySelector('#attachment').files=dt.files;})()`);
   await submit('#upload-form'); await wait('document.querySelector(".messages")?.textContent.includes("Comprovante anexado")');
-  await click('[data-action="switchProfile"]'); await click('[data-action="demoLogin"][data-id="bruno"]'); await wait('!!document.querySelector("[data-action=confirmReceipt]")');
+  await click('[data-action="switchProfile"]'); await loginAs('bruno'); await wait('!!document.querySelector("[data-action=confirmReceipt]")');
   await click('[data-action="confirmReceipt"]'); await submit('#confirm-form'); await wait('!document.querySelector("dialog").open && !document.querySelector("[data-action=confirmReceipt]")');
   await click('[data-action="completeTicket"]'); await submit('#confirm-form'); await wait('!!document.querySelector(".badge.completed")');
   assert.match(await evaluate('document.querySelector(".retention-note").textContent'), /Histórico disponível até/); checks.push('receipt upload, professional confirmation, completion, retention deadline');
+  await click('[data-action="switchProfile"]'); await loginAs('user');
+  await wait('!!document.querySelector(".review-invitation")');
+  await click('.review-invitation [data-action="review"]');
+  await evaluate('document.querySelectorAll("input[name=rating]")[4].checked=true');
+  await fill('#review-form', { comment: 'Atendimento demonstrativo excelente.' }); await submit('#review-form');
+  await wait('!document.querySelector("dialog").open && !document.querySelector(".review-invitation")');
+  assert.match(await evaluate('document.querySelector("main").textContent'), /Sua avaliação: 5\/5/);
+  checks.push('post-completion specialist review, optional comment, duplicate review removed');
+  await click('[data-action="switchProfile"]'); await loginAs('bruno');
+
   await navigate('/admin'); await wait('!!document.querySelector("table")'); await screenshot('admin-desktop.png', 1440, 1080);
   assert.equal(await evaluate('document.querySelector("main").textContent.includes("Olá! Vamos avaliar")'), false); checks.push('administrator operational dashboard without private messages');
   await navigate('/privacidade'); await wait('document.querySelector("h1")?.textContent.includes("Privacidade")');

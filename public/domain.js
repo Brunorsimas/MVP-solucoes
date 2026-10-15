@@ -6,19 +6,38 @@ export const SECTORS = {
 export const STATUS = { waiting: 'Aguardando especialista', conversation: 'Em conversa', proposal: 'Proposta enviada', contracted: 'Contratado', progress: 'Em atendimento', delivery: 'Aguardando confirmação', completed: 'Concluído', cancelled: 'Cancelado', released: 'Encaminhado a outro especialista' };
 export const CLOSED = ['completed', 'cancelled'];
 export const DEMO_USERS = [
-  { id: 'cliente', name: 'Ana Oliveira', role: 'client', email: 'ana@example.test', initials: 'AO' },
-  { id: 'tayane', name: 'Tayane', role: 'professional', sector: 'advocacia', specialty: 'Advocacia geral', services: ['Advocacia geral'], initials: 'TA' },
-  { id: 'miguel', name: 'Miguel', role: 'professional', sector: 'advocacia', specialty: 'Direito criminal', services: ['Direito criminal'], initials: 'MI' },
-  { id: 'feuzer', name: 'Feuzer', role: 'professional', sector: 'advocacia', specialty: 'Advocacia geral', services: ['Advocacia geral'], initials: 'FE' },
+  { id: 'cliente', username: 'user', name: 'user', role: 'client', email: 'user@example.test', initials: 'US' },
+  { id: 'tayane', name: 'Tayane', role: 'professional', sector: 'advocacia', specialty: 'Advogado geral', services: ['Advocacia geral'], initials: 'TA' },
+  { id: 'miguel', name: 'Miguel', role: 'professional', sector: 'advocacia', specialty: 'Advogado criminal', services: ['Direito criminal'], initials: 'MI' },
+  { id: 'feuzer', name: 'Feuzer', role: 'professional', sector: 'advocacia', specialty: 'Especialista em advocacia geral', services: ['Advocacia geral'], initials: 'FE' },
   { id: 'marcos', name: 'Marcos', role: 'professional', sector: 'engenharia', specialty: 'Engenheiro civil', services: SECTORS.engenharia.services, initials: 'MA' },
   { id: 'maria', name: 'Maria', role: 'professional', sector: 'engenharia', specialty: 'Engenheira civil', services: SECTORS.engenharia.services, initials: 'MR' },
   { id: 'bruno', name: 'Bruno', role: 'professional', admin: true, sector: 'ti', specialty: 'Hardware e suporte técnico', services: ['Suporte técnico', 'Conserto de computador', 'Montagem de PC'], initials: 'BR' },
   { id: 'stefanny', name: 'Stefanny', role: 'professional', sector: 'ti', specialty: 'Desenvolvimento de software', services: ['Desenvolvimento de software'], initials: 'ST' },
   { id: 'kleber', name: 'Kleber', role: 'professional', sector: 'ti', specialty: 'Engenharia de dados e suporte', services: ['Engenharia de dados', 'Suporte técnico'], initials: 'KL' }
-].map(u => ({ ...u, email: u.email || `${u.id}@example.test`, active: true, available: true, regions: ['PE', 'Belem'], modalities: u.sector === 'engenharia' ? ['Presencial'] : ['Remoto', 'Presencial'], bio: u.sector ? 'Perfil demonstrativo da equipe MVP Soluções. Especialidades e qualificações serão validadas antes da operação real.' : '' }));
+].map(u => ({ ...u, username: u.username || u.id, email: u.email || `${u.id}@example.test`, active: true, available: true, regions: ['PE', 'Belem'], modalities: u.sector === 'engenharia' ? ['Presencial'] : ['Remoto', 'Presencial'], bio: u.sector ? 'Perfil demonstrativo da equipe MVP Soluções. Especialidades e qualificações serão validadas antes da operação real.' : '' }));
+export const DEMO_PASSWORD = '123';
+export function normalizeState(state) {
+  state.version = 2;
+  for (const key of ['users', 'tickets', 'notifications', 'support', 'audit']) state[key] ||= [];
+  state.createdAt ||= new Date().toISOString();
+  for (const seed of DEMO_USERS) {
+    const user = state.users.find(u => u.id === seed.id);
+    if (!user) state.users.push(structuredClone(seed));
+    else {
+      user.username = seed.username;
+      if (user.id === 'cliente' && user.name === 'Ana Oliveira') { user.name = seed.name; user.initials = seed.initials; user.email = seed.email; }
+    }
+  }
+  return state;
+}
+export function demoUser(state, identifier) {
+  const login = String(identifier || '').trim().toLocaleLowerCase('pt-BR');
+  return state.users.find(user => DEMO_USERS.some(seed => seed.id === user.id) && [user.username, user.email].some(value => value?.toLocaleLowerCase('pt-BR') === login));
+}
 export const uid = () => globalThis.crypto.randomUUID();
 export function createState(now = new Date().toISOString()) {
-  return { version: 1, users: structuredClone(DEMO_USERS), tickets: [], notifications: [], support: [], audit: [], createdAt: now };
+  return normalizeState({ version: 2, users: structuredClone(DEMO_USERS), tickets: [], notifications: [], support: [], audit: [], createdAt: now });
 }
 export function fail(message, status = 400) { const error = new Error(message); error.status = status; throw error; }
 export function requireThat(condition, message, status = 400) { if (!condition) fail(message, status); }
@@ -58,8 +77,9 @@ function publicUser(user, state) {
   return { id, name, role, sector, specialty, services, initials, available, active, regions, modalities, bio, activeCount: activeCount(state, id) };
 }
 export function projectState(state, user) {
+  normalizeState(state);
   return {
-    user: user ? { ...publicUser(user, state), email: user.email, admin: !!user.admin } : null,
+    user: user ? { ...publicUser(user, state), username: user.username, email: user.email, admin: !!user.admin } : null,
     professionals: state.users.filter(u => u.role === 'professional').map(u => publicUser(u, state)),
     tickets: user ? state.tickets.filter(t => t.clientId === user.id || t.professionalId === user.id || t.threads.some(th => th.professionalId === user.id) || (t.status === 'waiting' && compatible(user, t) && t.excludedProfessionalId !== user.id)).map(t => {
       const own = t.clientId === user.id || t.professionalId === user.id;
@@ -77,6 +97,7 @@ export function projectState(state, user) {
   };
 }
 export function act(state, user, action, payload = {}, options = {}) {
+  normalizeState(state);
   requireThat(user?.active, 'Entre em uma conta ativa para continuar.', 401);
   const now = options.now || new Date().toISOString();
   let result = {};
@@ -200,9 +221,10 @@ export function act(state, user, action, payload = {}, options = {}) {
       requireThat(open && appointment && appointment.authorId !== user.id && appointment.status === 'pending', 'Agendamento indisponível.');
       requireThat(['confirmed', 'declined'].includes(payload.decision), 'Decisão inválida.'); appointment.status = payload.decision;
     } else if (action === 'review') {
-      requireThat(client && ticket.status === 'completed' && !ticket.review, 'Avaliação indisponível.');
+      requireThat(client && ticket.status === 'completed' && ticket.professionalId && !ticket.review, 'A avaliação exige um atendimento concluído e só pode ser enviada uma vez.');
       requireThat(Number.isInteger(Number(payload.rating)) && Number(payload.rating) >= 1 && Number(payload.rating) <= 5, 'Escolha uma nota de 1 a 5.');
-      ticket.review = { rating: Number(payload.rating), comment: text(payload.comment, 1000), at: now };
+      ticket.review = { professionalId: ticket.professionalId, rating: Number(payload.rating), comment: text(payload.comment, 1000), at: now };
+      notify(state, ticket.professionalId, 'Você recebeu uma avaliação', `O cliente avaliou o atendimento ${ticket.code}.`, ticket.id, now);
     } else fail('Ação desconhecida.', 404);
   }
   ticket.updatedAt = now; record(action, ticket.id); result.ticketId = ticket.id; return result;

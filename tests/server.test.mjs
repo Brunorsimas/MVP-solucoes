@@ -16,7 +16,7 @@ test('API: sessão, CSRF, aceite concorrente, isolamento e fluxo completo', asyn
   }
   const client = agent(), bruno = agent(), kleber = agent(), outsider = agent();
   assert.equal((await outsider('/action', { action: 'createTicket', payload })).status, 401);
-  await client('/auth/demo', { id: 'cliente' }); await bruno('/auth/demo', { id: 'bruno' }); await kleber('/auth/demo', { id: 'kleber' }); await outsider('/auth/demo', { id: 'maria' });
+  await client('/auth/login', { login: 'user', password: '123' }); await bruno('/auth/login', { login: 'bruno', password: '123' }); await kleber('/auth/login', { login: 'kleber', password: '123' }); await outsider('/auth/login', { login: 'maria', password: '123' });
   assert.equal((await client('/action', { action: 'createTicket', payload }, { 'X-CSRF-Token': 'invalid' })).status, 403);
   assert.equal((await client('/action', { action: 'createTicket', payload }, { Origin: 'https://evil.test' })).status, 403);
   const ticketId = (await client('/action', { action: 'createTicket', payload })).body.result.ticketId;
@@ -37,6 +37,17 @@ test('API: sessão, CSRF, aceite concorrente, isolamento e fluxo completo', asyn
   assert.equal((await client('/state')).body.tickets[0].status, 'completed');
   assert.equal((await client('/action', { action: 'message', payload: { ticketId, text: 'Encerrado' } })).status, 400);
   const html = await fetch(origin); assert.equal(html.status, 200); assert.match(html.headers.get('content-security-policy'), /object-src 'none'/); assert.match(await html.text(), /MVP Soluções/);
+});
+test('API: todas as contas temporárias exigem senha e o modo normal as desativa', async t => {
+  const app = createApp({ database: ':memory:' }); await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve)); t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}/api`;
+  const post = (path, data) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  assert.equal((await post('/auth/login', { login: 'user', password: 'errada' })).status, 401);
+  assert.equal((await post('/auth/demo', { id: 'bruno' })).status, 401);
+  for (const login of ['user', 'tayane', 'miguel', 'feuzer', 'marcos', 'maria', 'bruno', 'stefanny', 'kleber']) assert.equal((await post('/auth/login', { login, password: '123' })).status, 200, login);
+  const normal = createApp({ database: ':memory:', demo: false }); await new Promise(resolve => normal.server.listen(0, '127.0.0.1', resolve)); t.after(() => normal.close());
+  const response = await fetch(`http://127.0.0.1:${normal.server.address().port}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'bruno', password: '123' }) });
+  assert.equal(response.status, 401);
 });
 test('API: cadastro, login, recuperação e invalidação de sessões', async t => {
   const app = createApp({ database: ':memory:' }); await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve)); t.after(() => app.close());

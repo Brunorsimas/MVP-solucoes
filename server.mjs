@@ -4,7 +4,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypt
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { act, createState, projectState, purgeExpired, fail, requireThat, uid, businessOpen } from './public/domain.js';
+import { act, createState, normalizeState, demoUser, DEMO_PASSWORD, projectState, purgeExpired, fail, requireThat, uid, businessOpen } from './public/domain.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.webmanifest': 'application/manifest+json' };
@@ -14,7 +14,7 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
   const db = new DatabaseSync(database);
   db.exec('PRAGMA journal_mode=WAL; PRAGMA secure_delete=ON; CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL); CREATE TABLE IF NOT EXISTS accounts (user_id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS reset_tokens (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL);');
   if (!db.prepare('SELECT id FROM app_state WHERE id=1').get()) db.prepare('INSERT INTO app_state VALUES(1,?)').run(JSON.stringify(createState(now())));
-  const load = () => JSON.parse(db.prepare('SELECT content FROM app_state WHERE id=1').get().content);
+  const load = () => normalizeState(JSON.parse(db.prepare('SELECT content FROM app_state WHERE id=1').get().content));
   const save = state => db.prepare('UPDATE app_state SET content=? WHERE id=1').run(JSON.stringify(state));
   function transact(fn) { db.exec('BEGIN IMMEDIATE'); try { const state = load(); const result = fn(state); save(state); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; } }
   function cleanup() {
@@ -67,10 +67,6 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
         cleanup();
         const currentSession = session(req); const state = load(); const user = currentSession ? state.users.find(u => u.id === currentSession.user_id && u.active) : null;
         if (req.method === 'GET' && url.pathname === '/api/state') return json(res, { ...projectState(state, user), csrf: currentSession?.csrf, config: { mode: demo ? 'local-demo' : 'local', simulatedHour: demo ? simulatedHour : null, open: businessOpen(new Date(now()), demo ? simulatedHour : null), serverTime: now(), externalNotifications: false, retentionDays: 30 } });
-        if (req.method === 'POST' && url.pathname === '/api/auth/demo') {
-          requireThat(demo, 'Perfis demonstrativos desativados.', 403); const data = await body(req); const target = state.users.find(u => u.id === data.id && u.active); requireThat(target && !db.prepare('SELECT user_id FROM accounts WHERE user_id=?').get(target.id), 'Perfil demonstrativo indisponível.');
-          const csrf = startSession(res, target.id); return json(res, { csrf });
-        }
         if (req.method === 'POST' && url.pathname === '/api/auth/register') {
           throttle(req, 'register', 10); const data = await body(req); const email = String(data.email || '').trim().toLowerCase();
           requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length < 255, 'Informe um e-mail válido.');
@@ -82,7 +78,14 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
           return json(res, { csrf: startSession(res, id), message: 'Conta de teste criada. Verificação externa de e-mail ainda não configurada.' }, 201);
         }
         if (req.method === 'POST' && url.pathname === '/api/auth/login') {
-          throttle(req, 'login', 10); const data = await body(req); const account = db.prepare('SELECT * FROM accounts WHERE email=?').get(String(data.email || '').trim().toLowerCase());
+          throttle(req, 'login', 10); const data = await body(req);
+          const login = String(data.login || data.email || '').trim().toLowerCase();
+          const target = demo ? demoUser(state, login) : null;
+          if (target) {
+            requireThat(target.active && data.password === DEMO_PASSWORD, 'Usuário ou senha inválidos.', 401);
+            return json(res, { csrf: startSession(res, target.id) });
+          }
+          const account = db.prepare('SELECT * FROM accounts WHERE email=?').get(login);
           const hash = scryptSync(String(data.password || '').slice(0, 128), account?.salt || 'dummy-salt', 64);
           requireThat(account && timingSafeEqual(hash, Buffer.from(account.hash, 'hex')) && state.users.find(u => u.id === account.user_id)?.active, 'E-mail ou senha inválidos.', 401);
           return json(res, { csrf: startSession(res, account.user_id) });

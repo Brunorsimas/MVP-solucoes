@@ -116,3 +116,23 @@ test('perfis suspensos não podem executar ações', () => {
   const { run, create } = setup(); const ticketId = create(); run('bruno', 'toggleProfessional', { id: 'kleber' });
   assert.throws(() => run('kleber', 'accept', { ticketId }), /conta ativa/);
 });
+test('cliente não escolhe especialista; o chamado sempre nasce na fila', () => {
+  const { state, create } = setup();
+  create('Suporte técnico', 'cliente', { professionalId: 'bruno', specialistId: 'kleber' });
+  assert.equal(state.tickets[0].professionalId, null);
+  assert.equal(state.tickets[0].status, 'waiting');
+  assert.equal(state.tickets[0].threads.length, 0);
+});
+test('avaliação é opcional, exclusiva do cliente e vinculada ao especialista do serviço concluído', () => {
+  const { state, run, create } = setup(); const ticketId = create(); run('bruno', 'accept', { ticketId });
+  assert.throws(() => run('cliente', 'review', { ticketId, rating: 5 }), /concluído/);
+  state.tickets[0].status = 'completed';
+  assert.throws(() => run('bruno', 'review', { ticketId, rating: 5 }), /concluído/);
+  for (const rating of [0, 6, 1.5, 'invalid']) assert.throws(() => run('cliente', 'review', { ticketId, rating }), /nota de 1 a 5/);
+  run('cliente', 'review', { ticketId, rating: 5, comment: 'Atendimento excelente.', professionalId: 'kleber' });
+  assert.equal(state.tickets[0].review.professionalId, 'bruno');
+  assert.equal(state.tickets[0].review.rating, 5);
+  assert.equal(state.tickets[0].review.comment, 'Atendimento excelente.');
+  assert.throws(() => run('cliente', 'review', { ticketId, rating: 4 }), /uma vez/);
+  assert.ok(state.notifications.some(n => n.userId === 'bruno' && n.title === 'Você recebeu uma avaliação'));
+});
