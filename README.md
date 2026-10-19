@@ -44,21 +44,27 @@ Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos 
 
 - Interface responsiva, identidade visual própria, navegação acessível e recursos SVG locais.
 - Páginas de setores, diretório de especialistas, busca por nome/especialidade, ajuda, termos e privacidade.
-- Formulário em três etapas, perguntas por serviço e rascunho no navegador, acessível apenas após login. O setor escolhido é preservado durante a autenticação.
+- Formulário em três etapas, perguntas por serviço e rascunho privado por aba e sessão, acessível apenas após login. Logout e troca de conta removem o rascunho, inclusive nas outras abas. Rascunhos antigos sem autor são descartados. O setor escolhido é preservado durante a autenticação.
 - Sem campo de preferência de dias ou horários no formulário. A abertura é registrada automaticamente ao enviar a solicitação; a conclusão ou cancelamento registra o encerramento. Data, ano, hora, minuto e segundo aparecem no acompanhamento e na administração, no horário de Brasília. Os horários são gerados pelo sistema e não podem ser definidos pelo formulário.
 - Cadastro de clientes, login por senha com hash scrypt e cookies HttpOnly; recuperação simulada em ambiente de teste.
 - Login temporário por usuário e senha para cliente, especialista e administrador, sem seleção de perfis na tela de acesso.
 - Perfis profissionais apenas para exibição na página Especialistas; nenhuma escolha ou reserva de profissional ao solicitar atendimento.
 - Encaminhamento por especialidade, região, disponibilidade e situação do perfil. Novos chamados começam com atendimento **a combinar**; remoto ou presencial é acordado entre cliente e especialista no chat.
-- Aceite exclusivo e limite transacional de **dois chamados ativos por profissional**, incluindo projetos de engenharia.
+- Especialistas compatíveis podem ler título, descrição, detalhes, serviço, cidade e data de abertura antes do aceite. Consultar não ocupa vaga nem inicia o atendimento; contatos da conta e histórico de conversas anteriores continuam restritos. A solicitação sai da fila dos demais especialistas assim que é aceita.
+- Aceite exclusivo e limite transacional de **dois chamados ativos por profissional, ou três com o perfil completo**, incluindo projetos de engenharia.
 - Chat privado com atualização a cada cinco segundos e histórico persistente no servidor local.
-- Anexos privados em PDF, PNG e JPG, limitados a 2 MB por arquivo e 15 por conversa.
-- Propostas versionadas com escopo, exclusões, valor, prazo, validade e condições de pagamento.
+- Anexos privados em PDF, PNG e JPG: 2 MB por arquivo e 15 documentos comuns por conversa. Comprovantes não consomem essa quota e continuam disponíveis após os 15 documentos; exigem contratação aprovada e envio pelo cliente.
+- Propostas versionadas com escopo, exclusões, valor, prazo, validade de 1 a 365 dias e condições de pagamento. O servidor bloqueia aprovação no instante do vencimento; é necessário enviar nova versão atualizada.
+- Valor livremente negociado no chat, sem tabela ou piso por setor/assunto. Cliente e especialista podem enviar propostas e contrapropostas pelo formulário ou por documento em PDF/PNG/JPG (até 2 MB), informando valor e validade. A outra parte aprova ou recusa; ninguém aprova a própria proposta. A API valida apenas o formato monetário positivo em centavos, preservando os demais limites técnicos existentes.
 - Aprovação vinculada à versão exata da proposta, registrada com usuário e data.
-- Proposta e confirmação de agendamentos, exibidos no horário de Brasília.
-- Comprovante anexado pelo cliente; recebimento declarado pelo profissional antes da conclusão.
-- Cancelamento direto antes da primeira interação profissional; suporte para encerramentos posteriores.
-- Novo encaminhamento antes da contratação, sem compartilhar automaticamente a conversa anterior.
+- Proposta com anexo é validada antes do envio e gravada em uma única operação. Se houver erro de validação ou falta de espaço na quota comum, nem arquivo nem proposta são gravados.
+- O aceite registra o início da conversa. O especialista registra os agendamentos desde o início; o cliente confirma ou recusa. Horários exibidos em Brasília.
+- Reagendamento vinculado ao encontro original: somente a confirmação do novo horário marca o antigo como substituído. Recusa ou cancelamento do novo mantém o anterior válido. Cliente e especialista podem cancelar um encontro com motivo registrado e notificação; cancelar o original também cancela reagendamentos pendentes dele.
+- Comprovante anexado pelo cliente; recebimento declarado pelo profissional para a versão e valor exatos da proposta antes da conclusão. Nova proposta aprovada exige nova conferência explícita. Comprovantes antigos sem vínculo também precisam ser reconferidos.
+- Cancelamento direto até aprovar a contratação, inclusive após conversa/agendamento. Cancelar ou encerrar sem cobrança cancela reuniões e propostas pendentes. Depois de contratar, o encerramento é solicitado pelo suporte.
+- Ao tratar/finalizar um suporte vinculado a chamado aberto, o administrador confirma o encerramento do chamado, fechamento do chat, cancelamento da agenda e liberação da vaga. Suporte geral não encerra chamados; os já encerrados preservam status e datas originais.
+- Novo encaminhamento antes da contratação: o motivo fica como observação para o próximo especialista. Cada profissional consulta somente sua participação; ex-participantes não recebem atualizações posteriores nem voltam à fila desse chamado. A administração mantém sua visão operacional, sem acesso geral a chats.
+- Conclusão encerra propostas pendentes, encontros futuros e chats. Horários confirmados anteriores à conclusão ficam como encerrados no histórico. Dados antigos concluídos com pendências são normalizados sem alterar a data original de encerramento ou a proposta aprovada.
 - Exportação do histórico em texto e download individual dos anexos.
 - Exclusão de mensagens e anexos após 30 dias do encerramento de cada conversa.
 - Notificações internas e indicação explícita de alertas externos simulados.

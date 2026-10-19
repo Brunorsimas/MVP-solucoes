@@ -33,7 +33,7 @@ test('API: sessão, CSRF, aceite concorrente, isolamento e fluxo completo', asyn
   assert.equal((await client('/action', { action: 'upload', payload: { ticketId, name: 'comprovante.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.4\nfictional receipt').toString('base64'), receipt: true } })).status, 200);
   const file = (await client('/state')).body.tickets.find(t => t.id === ticketId).threads[0].files[0];
   assert.equal((await outsider(`/files/${file.id}`)).status, 404);
-  await winner('/action', { action: 'confirmReceipt', payload: { ticketId, fileId: file.id } });
+  await winner('/action', { action: 'confirmReceipt', payload: { ticketId, fileId: file.id, proposalId: ticket.proposals[0].id } });
   assert.equal((await winner('/action', { action: 'complete', payload: { ticketId } })).status, 200);
   assert.equal((await client('/state')).body.tickets[0].status, 'completed');
   assert.equal((await client('/action', { action: 'message', payload: { ticketId, text: 'Encerrado' } })).status, 400);

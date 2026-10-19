@@ -22,14 +22,14 @@ test('aceite é exclusivo e o terceiro atendimento é bloqueado', () => {
   run('bruno', 'accept', { ticketId: a });
   assert.throws(() => run('kleber', 'accept', { ticketId: a }), /já foi assumido/);
   run('bruno', 'accept', { ticketId: b });
-  assert.throws(() => run('bruno', 'accept', { ticketId: c }), /dois chamados/);
+  assert.throws(() => run('bruno', 'accept', { ticketId: c }), error => error.status === 409);
   assert.equal(activeCount(state, 'bruno'), 2);
 });
 test('engenheiros também respeitam dois projetos simultâneos', () => {
   const { state, run, create } = setup();
   const make = () => create('Projeto civil', 'cliente', { sector: 'engenharia' });
   run('marcos', 'accept', { ticketId: make() }); run('marcos', 'accept', { ticketId: make() });
-  assert.throws(() => run('marcos', 'accept', { ticketId: make() }), /dois chamados/);
+  assert.throws(() => run('marcos', 'accept', { ticketId: make() }), error => error.status === 409);
   assert.equal(activeCount(state, 'marcos'), 2);
 });
 test('especialidade e região são verificadas', () => {
@@ -42,10 +42,10 @@ test('cancelamento antes do início libera a vaga', () => {
   const { state, run, create } = setup(); const ticketId = create(); run('bruno', 'accept', { ticketId }); run('cliente', 'cancel', { ticketId });
   assert.equal(activeCount(state, 'bruno'), 0); assert.equal(state.tickets[0].status, 'cancelled');
 });
-test('primeira interação profissional impede cancelamento automático', () => {
-  const { run, create } = setup(); const ticketId = create(); run('bruno', 'accept', { ticketId }); run('bruno', 'message', { ticketId, text: 'Olá, vamos avaliar.' });
-  assert.throws(() => run('cliente', 'cancel', { ticketId }), /Após o início/);
-  run('cliente', 'support', { ticketId, category: 'Solicitar encerramento', message: 'Quero encerrar este atendimento.' });
+test('cliente pode cancelar após conversa se ainda não aprovou proposta', () => {
+  const { state, run, create } = setup(); const ticketId = create(); run('bruno', 'accept', { ticketId }); run('bruno', 'message', { ticketId, text: 'Olá, vamos avaliar.' });
+  run('cliente', 'cancel', { ticketId });
+  assert.equal(state.tickets[0].status, 'cancelled');
 });
 test('proposta exige aprovação exata antes de execução', () => {
   const { state, run, create } = setup(); const ticketId = create(); run('bruno', 'accept', { ticketId });
@@ -65,7 +65,7 @@ test('fim do atendimento exige entrega e recebimento confirmado', () => {
   assert.throws(() => run('bruno', 'complete', { ticketId }), /recebimento/);
   run('cliente', 'upload', { ticketId, name: 'comprovante.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.4 teste').toString('base64'), receipt: true });
   assert.throws(() => run('bruno', 'complete', { ticketId }), /recebimento/);
-  run('bruno', 'confirmReceipt', { ticketId, fileId: state.tickets[0].threads[0].files[0].id });
+  run('bruno', 'confirmReceipt', { ticketId, fileId: state.tickets[0].threads[0].files[0].id, proposalId: state.tickets[0].proposals[0].id });
   const closedAt = '2026-10-14T17:32:18.000Z';
   run('bruno', 'complete', { ticketId, closedAt: '1999-01-01T00:00:00.000Z' }, { now: closedAt });
   assert.equal(state.tickets[0].status, 'completed'); assert.equal(activeCount(state, 'bruno'), 0);

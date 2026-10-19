@@ -55,7 +55,7 @@ try {
       await fill('#profile-form', { contactEmail: `${login}.contato@example.test`, phone: '(81) 90000-1234', region: 'PE', city: 'Recife' });
       await click('#profile-menu-trigger'); await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true}))');
       assert.equal(await evaluate('document.querySelector("#city").value'), 'Recife', 'Opening the menu must preserve unsaved fields');
-      await evaluate('document.querySelector("#profile-form").requestSubmit()'); await wait('document.querySelector("progress")?.value === 5');
+      await evaluate('document.querySelector("#profile-form").requestSubmit()'); await wait(`document.querySelector("progress")?.value === ${login === 'user' ? 5 : 6}`);
       await cdp('Page.reload'); await wait('document.querySelector("#phone")?.value === "(81) 90000-1234"');
       assert.equal(await evaluate('document.querySelector("#contactEmail").value'), `${login}.contato@example.test`);
       if (login === 'bruno') { await click('#profile-menu-trigger'); await screenshot(`${mode}-account-desktop.png`); await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true}))'); }

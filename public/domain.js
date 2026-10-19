@@ -4,7 +4,7 @@ export const SECTORS = {
   ti: { name: 'Tecnologia da informação', short: 'Tecnologia', icon: 'monitor', color: 'teal', description: 'Seu computador, seus dados e suas ideias.', services: ['Suporte técnico', 'Conserto de computador', 'Montagem de PC', 'Desenvolvimento de software', 'Engenharia de dados'] }
 };
 export const STATUS = { waiting: 'Aguardando especialista', conversation: 'Em conversa', proposal: 'Proposta enviada', contracted: 'Contratado', progress: 'Em atendimento', delivery: 'Aguardando confirmação', completed: 'Concluído', cancelled: 'Cancelado', released: 'Encaminhado a outro especialista' };
-export const CLOSED = ['completed', 'cancelled'];
+export const CLOSED = ['completed', 'cancelled', 'released'];
 export const DEMO_USERS = [
   { id: 'cliente', username: 'user', name: 'user', role: 'client', email: 'user@example.test', initials: 'US' },
   { id: 'tayane', name: 'Tayane', role: 'professional', sector: 'advocacia', specialty: 'Advogado geral', services: ['Advocacia geral'], initials: 'TA' },
@@ -29,6 +29,15 @@ export function normalizeState(state) {
       if (user.id === 'cliente' && user.name === 'Ana Oliveira') { user.name = seed.name; user.initials = seed.initials; user.email = seed.email; }
     }
   }
+  for (const ticket of state.tickets) {
+    for (const thread of ticket.threads || []) {
+      if (!thread.releaseReason) {
+        const message = thread.messages?.find(m => m.system && m.text.startsWith('Solicitado novo encaminhamento: '));
+        if (message) thread.releaseReason = message.text.slice('Solicitado novo encaminhamento: '.length);
+      }
+    }
+    if (['completed', 'cancelled'].includes(ticket.status) && ticket.closedAt) finalizePending(ticket, ticket.closedAt);
+  }
   return state;
 }
 export function demoUser(state, identifier) {
@@ -42,7 +51,93 @@ export function createState(now = new Date().toISOString()) {
 export function fail(message, status = 400) { const error = new Error(message); error.status = status; throw error; }
 export function requireThat(condition, message, status = 400) { if (!condition) fail(message, status); }
 export function text(value, max = 4000) { return String(value ?? '').trim().slice(0, max); }
+export function priceInCents(value) {
+  if (!['string', 'number'].includes(typeof value) || !/^\d+(?:\.\d{1,2})?$/.test(String(value))) return null;
+  const [whole, fraction = ''] = String(value).split('.');
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(cents) && cents >= 1 && cents <= 1000000000 ? cents : null;
+}
+export const proposalAuthor = proposal => proposal.authorId || proposal.professionalId;
+export function proposalExpiresAt(proposal) {
+  if (proposal.expiresAt) return proposal.expiresAt;
+  const days = /^(\d{1,3})(?:\s*dias?)?$/.exec(String(proposal.validity || '').trim())?.[1];
+  const at = Date.parse(proposal.at);
+  return days && Number(days) >= 1 && Number(days) <= 365 && Number.isFinite(at) ? new Date(at + Number(days) * 86400000).toISOString() : null;
+}
+export function proposalExpired(proposal, now = new Date().toISOString()) {
+  const expires = proposalExpiresAt(proposal);
+  return !expires || !Number.isFinite(Date.parse(expires)) || Date.parse(now) >= Date.parse(expires);
+}
+export function currentProposal(ticket) { return (ticket.proposals || []).find(p => p.status === 'accepted' && p.threadId === ticket.threads.at(-1)?.id); }
+export function receiptConfirmed(file, proposal) {
+  return !!(proposal && file.receipt && file.confirmedAt && file.confirmedProposalId === proposal.id && file.confirmedAmount === proposal.amount);
+}
+function cancelAppointments(ticket, now) {
+  for (const a of ticket.appointments) if (['pending', 'confirmed'].includes(a.status)) { a.status = 'cancelled'; a.cancelledAt = now; }
+}
+function finalizePending(ticket, now) {
+  for (const p of ticket.proposals || []) if (p.status === 'pending') { p.status = 'cancelled'; p.cancelledAt = now; }
+  for (const a of ticket.appointments || []) if (['pending', 'confirmed'].includes(a.status)) {
+    a.status = ticket.status === 'completed' && a.status === 'confirmed' && Date.parse(a.date) <= Date.parse(now) ? 'closed' : 'cancelled';
+    a.closedAt = now;
+    if (a.status === 'cancelled') a.cancelledAt = now;
+    a.closeReason = 'Atendimento encerrado.';
+  }
+  for (const th of ticket.threads || []) th.closedAt ||= now;
+}
+export function validateProposalInput(payload) {
+  const amount = priceInCents(payload.amount);
+  requireThat(amount !== null, 'Informe um valor positivo com até duas casas decimais. O preço é combinado entre cliente e especialista.');
+  const validityDays = Number(payload.validityDays ?? /^(\d{1,3})(?:\s*dias?)?$/.exec(text(payload.validity || '7 dias'))?.[1]);
+  requireThat(Number.isInteger(validityDays) && validityDays >= 1 && validityDays <= 365, 'A validade deve ser de 1 a 365 dias.');
+  const source = payload.source || 'form';
+  requireThat(['form', 'document'].includes(source), 'Escolha formulário ou documento para a proposta.');
+  requireThat(!(payload.fileId && payload.attachment), 'Envie um único documento para a proposta.');
+  if (source === 'document') requireThat(payload.fileId || payload.attachment, 'Anexe o documento da proposta.');
+  if (source === 'form') requireThat(text(payload.scope).length >= 10 && text(payload.deadline).length >= 2 && text(payload.terms).length >= 3, 'Preencha escopo, prazo e condições de pagamento.');
+  return { amount, validityDays, source };
+}
+export function validateAttachment(payload, verifyContent = true) {
+  requireThat(['application/pdf', 'image/png', 'image/jpeg'].includes(payload.type), 'Envie PDF, PNG ou JPG.');
+  requireThat(typeof payload.data === 'string' && /^[A-Za-z0-9+/]*={0,2}$/.test(payload.data) && payload.data.length > 0 && payload.data.length <= 2800000, 'Arquivo inválido ou maior que 2 MB.');
+  let bytes; try { bytes = atob(payload.data); } catch { fail('Arquivo inválido.'); }
+  requireThat(bytes.length > 0 && bytes.length <= 2 * 1024 * 1024, 'Arquivo maior que 2 MB ou vazio.');
+  if (verifyContent) requireThat((payload.type === 'application/pdf' && bytes.startsWith('%PDF-')) || (payload.type === 'image/png' && bytes.slice(0, 8) === '\x89PNG\r\n\x1a\n') || (payload.type === 'image/jpeg' && bytes.charCodeAt(0) === 255 && bytes.charCodeAt(1) === 216 && bytes.charCodeAt(2) === 255), 'O conteúdo do arquivo não corresponde ao formato informado.');
+}
+function prepareFile(thread, user, payload, now, verifyContent = false) {
+  validateAttachment(payload, verifyContent);
+  requireThat(payload.receipt || thread.files.filter(f => !f.receipt).length < 15, 'Limite de 15 anexos comuns por conversa. Comprovantes têm espaço separado.');
+  return { id: uid(), name: text(payload.name, 120).replace(/[\\/<>:"|?*\r\n]/g, '_'), type: payload.type, data: payload.data, receipt: !!payload.receipt, authorId: user.id, at: now };
+}
+function appendFile(thread, file, user, now) {
+  thread.files.push(file);
+  thread.messages.push({ id: uid(), authorId: user.id, text: file.receipt ? 'Comprovante anexado. Aguardando conferência do profissional.' : 'Arquivo compartilhado.', fileId: file.id, at: now });
+}
+function canPreview(user, ticket) {
+  return ticket.status === 'waiting' && compatible(user, ticket) && ticket.excludedProfessionalId !== user.id && !ticket.threads.some(th => th.professionalId === user.id);
+}
+function releaseNote(thread) { return thread?.releaseReason ? { reason: thread.releaseReason, at: thread.closedAt } : null; }
+function closeTicket(state, ticket, now, reason) {
+  ticket.status = 'cancelled'; ticket.closedAt = now; ticket.updatedAt = now; ticket.closeReason = reason;
+  finalizePending(ticket, now);
+  notify(state, ticket.clientId, 'Atendimento encerrado', reason, ticket.id, now);
+  if (ticket.professionalId) { notify(state, ticket.professionalId, 'Atendimento encerrado', reason, ticket.id, now); notifyVacancy(state, ticket.professionalId, now); }
+}
 export function activeCount(state, userId) { return state.tickets.filter(t => t.professionalId === userId && !CLOSED.includes(t.status)).length; }
+export const contactEmail = user => user.contactEmail ?? (user.email?.endsWith('@example.test') ? '' : user.email || '');
+export function profileCompletion(user) {
+  const fields = [
+    ['Nome', text(user.name).length >= 2],
+    ['E-mail para contato', /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail(user))],
+    ['Telefone com DDD', /^[+\d()\s-]+$/.test(user.phone || '') && /^\d{8,15}$/.test(String(user.phone || '').replace(/\D/g, ''))],
+    ['Estado', ['PE', 'PA'].includes(user.region)],
+    ['Cidade', text(user.city).length >= 2]
+  ];
+  if (user.role === 'professional') fields.push(['Apresentação', text(user.bio).length >= 20]);
+  const missing = fields.filter(([, filled]) => !filled).map(([label]) => label);
+  return { total: fields.length, filled: fields.length - missing.length, complete: missing.length === 0, missing };
+}
+export function professionalCapacity(user) { return user.role === 'professional' && profileCompletion(user).complete ? 3 : 2; }
 export function compatible(user, ticket) { return user.active && user.available && user.role === 'professional' && user.sector === ticket.sector && user.services.includes(ticket.service) && user.regions.includes(ticket.region) && (!ticket.modality || ticket.modality === 'A combinar' || user.modalities.includes(ticket.modality)); }
 export function businessOpen(date = new Date(), simulatedHour = null) {
   const hour = simulatedHour === null ? Number(new Intl.DateTimeFormat('en-US', { hour: '2-digit', hourCycle: 'h23', timeZone: 'America/Recife' }).format(date)) : Number(simulatedHour);
@@ -53,12 +148,12 @@ function notify(state, userId, title, body, ticketId, now) {
   state.notifications = state.notifications.slice(0, 1000);
 }
 export function notifyEligible(state, ticket, now) {
-  for (const user of state.users.filter(u => compatible(u, ticket) && u.id !== ticket.clientId && u.id !== ticket.excludedProfessionalId && activeCount(state, u.id) < 2)) notify(state, user.id, 'Novo chamado disponível', `${SECTORS[ticket.sector].name} · ${ticket.service}`, ticket.id, now);
+  for (const user of state.users.filter(u => canPreview(u, ticket) && u.id !== ticket.clientId && activeCount(state, u.id) < professionalCapacity(u))) notify(state, user.id, 'Novo chamado disponível', `${SECTORS[ticket.sector].name} · ${ticket.service}`, ticket.id, now);
 }
 function notifyVacancy(state, userId, now) {
   const user = state.users.find(u => u.id === userId);
-  if (!user || activeCount(state, userId) >= 2) return;
-  const ticket = state.tickets.find(t => t.status === 'waiting' && t.clientId !== userId && t.excludedProfessionalId !== userId && compatible(user, t));
+  if (!user || activeCount(state, userId) >= professionalCapacity(user)) return;
+  const ticket = state.tickets.find(t => t.clientId !== userId && canPreview(user, t));
   if (ticket) notify(state, userId, 'Você tem uma vaga disponível', 'Há solicitações compatíveis aguardando na fila.', ticket.id, now);
 }
 export function purgeExpired(state, now = new Date().toISOString()) {
@@ -74,18 +169,25 @@ export function purgeExpired(state, now = new Date().toISOString()) {
 }
 function publicUser(user, state) {
   const { id, name, role, sector, specialty, services, initials, available, active, regions, modalities, bio } = user;
-  return { id, name, role, sector, specialty, services, initials, available, active, regions, modalities, bio, activeCount: activeCount(state, id) };
+  return { id, name, role, sector, specialty, services, initials, available, active, regions, modalities, bio, activeCount: activeCount(state, id), capacity: role === 'professional' ? professionalCapacity(user) : undefined };
 }
 export function projectState(state, user) {
   normalizeState(state);
   return {
-    user: user ? { ...publicUser(user, state), username: user.username, email: user.email, phone: user.phone || '', contactEmail: user.contactEmail ?? (user.email?.endsWith('@example.test') ? '' : user.email || ''), city: user.city || '', region: user.region || '', admin: !!user.admin } : null,
+    user: user ? { ...publicUser(user, state), username: user.username, email: user.email, phone: user.phone || '', contactEmail: contactEmail(user), city: user.city || '', region: user.region || '', admin: !!user.admin, profileCompletion: profileCompletion(user) } : null,
     professionals: state.users.filter(u => u.role === 'professional').map(u => publicUser(u, state)),
-    tickets: user ? state.tickets.filter(t => t.clientId === user.id || t.professionalId === user.id || t.threads.some(th => th.professionalId === user.id) || (t.status === 'waiting' && compatible(user, t) && t.excludedProfessionalId !== user.id)).map(t => {
-      const own = t.clientId === user.id || t.professionalId === user.id;
+    tickets: user ? state.tickets.filter(t => t.clientId === user.id || t.professionalId === user.id || t.threads.some(th => th.professionalId === user.id) || canPreview(user, t)).map(t => {
+      const client = t.clientId === user.id, assigned = t.professionalId === user.id;
       const allowedThreads = t.threads.filter(th => t.clientId === user.id || th.professionalId === user.id);
-      const result = { ...t, proposals: t.proposals.filter(p => allowedThreads.some(th => th.id === p.threadId)), appointments: t.appointments.filter(a => allowedThreads.some(th => th.id === a.threadId)), threads: allowedThreads.map(th => ({ ...th, files: th.files.map(({ data, ...file }) => file) })) };
-      if (!own) { delete result.description; delete result.details; delete result.clientId; delete result.preferences; delete result.proposals; delete result.appointments; delete result.review; }
+      const base = Object.fromEntries(['id', 'code', 'sector', 'service', 'region', 'city', 'modality', 'title', 'description', 'details', 'createdAt'].map(k => [k, t[k]]));
+      if (!client && !assigned && !allowedThreads.length) return { ...base, status: 'waiting', professionalId: null, startedAt: null, closedAt: null, updatedAt: t.updatedAt, threads: [], releaseNote: releaseNote(t.threads.at(-1)) };
+      const last = allowedThreads.at(-1);
+      const result = { ...base, proposals: t.proposals.filter(p => allowedThreads.some(th => th.id === p.threadId)), appointments: t.appointments.filter(a => allowedThreads.some(th => th.id === a.threadId)), threads: allowedThreads.map(th => ({ ...th, files: th.files.map(({ data, ...file }) => file) })) };
+      if (client || assigned) {
+        Object.assign(result, { clientId: t.clientId, status: t.status, professionalId: t.professionalId, startedAt: t.startedAt, closedAt: t.closedAt, updatedAt: t.updatedAt, closeReason: t.closeReason, review: t.review, releaseNote: client ? releaseNote(t.threads.filter(th => th.releaseReason).at(-1)) : last?.receivedReleaseNote || releaseNote(t.threads[t.threads.indexOf(last) - 1]) });
+      } else {
+        Object.assign(result, { status: 'released', professionalId: user.id, startedAt: last.createdAt, updatedAt: last.closedAt, closedAt: last.closedAt, closeReason: last.releaseReason, releaseNote: last.receivedReleaseNote || null });
+      }
       return result;
     }) : [],
     notifications: user ? state.notifications.filter(n => n.userId === user.id) : [],
@@ -116,6 +218,7 @@ export function act(state, user, action, payload = {}, options = {}) {
   }
   if (action === 'readNotifications') { state.notifications.filter(n => n.userId === user.id).forEach(n => n.read = true); return {}; }
   if (action === 'profile') {
+    const previousCapacity = professionalCapacity(user);
     const profile = { name: text(payload.name ?? user.name, 70) };
     requireThat(profile.name.length >= 2, 'Informe seu nome com pelo menos dois caracteres.');
     for (const key of ['phone', 'contactEmail', 'city', 'region']) if (Object.hasOwn(payload, key)) profile[key] = text(payload[key], key === 'contactEmail' ? 254 : key === 'city' ? 80 : 25);
@@ -128,6 +231,10 @@ export function act(state, user, action, payload = {}, options = {}) {
     if (user.role === 'professional') {
       if (Object.hasOwn(payload, 'available')) user.available = !!payload.available;
       if (Object.hasOwn(payload, 'bio')) user.bio = text(payload.bio, 800);
+      if (professionalCapacity(user) > previousCapacity) {
+        notify(state, user.id, 'Terceira vaga liberada', 'Seu perfil está completo. Você pode atender até três chamados simultâneos.', null, now);
+        notifyVacancy(state, user.id, now);
+      }
     }
     record(action); return {};
   }
@@ -137,7 +244,18 @@ export function act(state, user, action, payload = {}, options = {}) {
     state.support.unshift({ id: uid(), userId: user.id, ticketId: payload.ticketId || null, category: text(payload.category, 80), message: text(payload.message, 2000), status: 'open', createdAt: now });
     record(action, payload.ticketId); return {};
   }
-  if (action === 'resolveSupport') { requireThat(user.admin, 'Acesso restrito.', 403); const s = state.support.find(s => s.id === payload.id); requireThat(s, 'Solicitação não encontrada.', 404); s.status = 'resolved'; record(action, s.ticketId); return {}; }
+  if (action === 'resolveSupport') {
+    requireThat(user.admin, 'Acesso restrito.', 403);
+    const s = state.support.find(s => s.id === payload.id); requireThat(s, 'Solicitação não encontrada.', 404);
+    requireThat(s.status === 'open', 'Este suporte já foi finalizado.', 409);
+    const t = s.ticketId && state.tickets.find(t => t.id === s.ticketId);
+    if (t && !CLOSED.includes(t.status)) {
+      closeTicket(state, t, now, 'Chamado encerrado pela administração ao finalizar o suporte.');
+      t.closedBySupportId = s.id;
+    }
+    s.status = 'resolved'; s.resolvedAt = now; s.resolvedBy = user.id;
+    record(action, s.ticketId); return {};
+  }
   if (action === 'toggleProfessional') {
     requireThat(user.admin, 'Acesso restrito.', 403); const target = state.users.find(u => u.id === payload.id && u.role === 'professional'); requireThat(target && target.id !== user.id, 'Perfil inválido.'); target.active = !target.active; record(action); return {};
   }
@@ -149,23 +267,24 @@ export function act(state, user, action, payload = {}, options = {}) {
   const open = !CLOSED.includes(ticket.status);
   if (action === 'accept') {
     requireThat(ticket.status === 'waiting' && !ticket.professionalId, 'Este chamado já foi assumido.', 409);
-    requireThat(!client && compatible(user, ticket) && ticket.excludedProfessionalId !== user.id, 'Este chamado não é compatível com seu perfil.', 403);
-    requireThat(activeCount(state, user.id) < 2, 'Você já está atendendo dois chamados.', 409);
-    ticket.professionalId = user.id; ticket.status = 'conversation'; ticket.threads.push({ id: uid(), professionalId: user.id, createdAt: now, closedAt: null, messages: [], files: [] });
+    requireThat(!client && canPreview(user, ticket), 'Este chamado não é compatível com seu perfil.', 403);
+    requireThat(activeCount(state, user.id) < professionalCapacity(user), `Seu limite atual é de ${professionalCapacity(user)} chamados simultâneos.`, 409);
+    const receivedReleaseNote = releaseNote(ticket.threads.at(-1));
+    ticket.professionalId = user.id; ticket.startedAt = now; ticket.status = 'conversation'; ticket.threads.push({ id: uid(), professionalId: user.id, createdAt: now, closedAt: null, messages: [], files: [], receivedReleaseNote });
     notify(state, ticket.clientId, 'Seu chamado foi aceito', `${user.name} está disponível para conversar.`, ticket.id, now);
   } else {
     requireThat(client || pro, 'Você não participa deste atendimento.', 403);
     if (action === 'cancel') {
-      requireThat(client && !ticket.startedAt && !['contracted', 'progress', 'delivery'].includes(ticket.status) && open, 'Após o início, solicite o encerramento pelo suporte.');
-      ticket.status = 'cancelled'; ticket.closedAt = now; if (thread) thread.closedAt = now;
-      if (ticket.professionalId) { notify(state, ticket.professionalId, 'Chamado cancelado', ticket.code, ticket.id, now); notifyVacancy(state, ticket.professionalId, now); }
+      requireThat(client && ['waiting', 'conversation', 'proposal'].includes(ticket.status), 'Após aprovar a contratação, solicite o encerramento pelo suporte.');
+      closeTicket(state, ticket, now, 'Solicitação cancelada pelo cliente antes da contratação.');
     } else if (action === 'release') {
       requireThat(['conversation', 'proposal'].includes(ticket.status), 'Após a contratação, solicite suporte para tratar a transferência.');
       requireThat(text(payload.reason).length >= 5, 'Informe o motivo do novo encaminhamento.');
       const previous = ticket.professionalId;
+      thread.releaseReason = text(payload.reason, 500);
       thread.messages.push({ id: uid(), authorId: user.id, text: `Solicitado novo encaminhamento: ${text(payload.reason, 500)}`, at: now, system: true }); thread.closedAt = now;
       ticket.proposals.filter(p => p.status === 'pending').forEach(p => p.status = 'superseded');
-      ticket.appointments.filter(a => a.status === 'pending' || a.status === 'confirmed').forEach(a => a.status = 'cancelled');
+      cancelAppointments(ticket, now);
       ticket.excludedProfessionalId = previous; ticket.professionalId = null; ticket.startedAt = null; ticket.status = 'waiting';
       notifyEligible(state, ticket, now); notify(state, ticket.clientId, 'Novo encaminhamento', 'O chamado voltou à fila de especialistas.', ticket.id, now); notifyVacancy(state, previous, now);
     } else if (action === 'message' || action === 'upload') {
@@ -174,34 +293,42 @@ export function act(state, user, action, payload = {}, options = {}) {
         requireThat(text(payload.text).length > 0, 'Escreva uma mensagem.');
         thread.messages.push({ id: uid(), authorId: user.id, text: text(payload.text), at: now });
       } else {
-        requireThat(['application/pdf', 'image/png', 'image/jpeg'].includes(payload.type), 'Envie PDF, PNG ou JPG.');
-        requireThat(typeof payload.data === 'string' && /^[A-Za-z0-9+/]*={0,2}$/.test(payload.data) && payload.data.length > 0 && payload.data.length <= 2800000, 'Arquivo inválido ou maior que 2 MB.');
-        requireThat(thread.files.length < 15, 'Limite de 15 anexos por conversa.');
         requireThat(!payload.receipt || (client && ticket.proposals.some(p => p.status === 'accepted' && p.threadId === thread.id)), 'Comprovantes exigem uma proposta aprovada.');
-        const file = { id: uid(), name: text(payload.name, 120).replace(/[\\/<>:"|?*\r\n]/g, '_'), type: payload.type, data: payload.data, receipt: !!payload.receipt, authorId: user.id, at: now };
-        thread.files.push(file); thread.messages.push({ id: uid(), authorId: user.id, text: file.receipt ? 'Comprovante anexado. Aguardando conferência do profissional.' : 'Arquivo compartilhado.', fileId: file.id, at: now });
+        const file = prepareFile(thread, user, payload, now);
+        appendFile(thread, file, user, now);
+        result.fileId = file.id;
       }
       if (pro && !ticket.startedAt) ticket.startedAt = now;
       notify(state, client ? ticket.professionalId : ticket.clientId, 'Nova mensagem', `Você recebeu uma mensagem em ${ticket.code}.`, ticket.id, now);
     } else if (action === 'proposal') {
-      requireThat(pro && ['conversation', 'proposal', 'contracted', 'progress'].includes(ticket.status), 'Não é possível enviar proposta neste momento.');
-      const amount = Number(payload.amount);
-      requireThat(Number.isFinite(amount) && amount > 0 && amount <= 10000000, 'Informe um valor válido maior que zero.');
-      requireThat(text(payload.scope).length >= 10 && text(payload.deadline).length >= 2 && text(payload.terms).length >= 3, 'Preencha escopo, prazo e condições de pagamento.');
+      requireThat(thread && !thread.closedAt && ['conversation', 'proposal', 'contracted', 'progress'].includes(ticket.status), 'Não é possível enviar proposta neste momento.');
+      const { amount, validityDays, source } = validateProposalInput(payload);
+      const file = payload.attachment ? prepareFile(thread, user, { ...payload.attachment, receipt: false }, now, true) : payload.fileId ? thread.files.find(f => f.id === payload.fileId && f.authorId === user.id && !f.receipt) : null;
+      requireThat(!payload.fileId || file, 'Anexe um documento seu nesta conversa para enviar a proposta.', 403);
+      requireThat(source !== 'document' || file, 'Anexe o documento da proposta.');
+      if (payload.attachment) appendFile(thread, file, user, now);
       ticket.proposals.filter(p => p.status === 'pending').forEach(p => p.status = 'superseded');
-      ticket.proposals.push({ id: uid(), threadId: thread.id, version: ticket.proposals.length + 1, professionalId: user.id, amount: Math.round(amount * 100), scope: text(payload.scope, 2000), exclusions: text(payload.exclusions, 1000), deadline: text(payload.deadline, 200), terms: text(payload.terms, 1000), validity: text(payload.validity || '7 dias', 100), status: 'pending', at: now });
+      const documentTerms = file ? `Conforme documento: ${file.name}` : '';
+      const proposal = { id: uid(), threadId: thread.id, version: ticket.proposals.length + 1, professionalId: ticket.professionalId, authorId: user.id, source, fileId: file?.id || null, fileName: file?.name || null, amount, scope: source === 'document' ? documentTerms : text(payload.scope, 2000), exclusions: source === 'document' ? '' : text(payload.exclusions, 1000), deadline: source === 'document' ? documentTerms : text(payload.deadline, 200), terms: source === 'document' ? documentTerms : text(payload.terms, 1000), validity: `${validityDays} dias`, validityDays, expiresAt: new Date(Date.parse(now) + validityDays * 86400000).toISOString(), status: 'pending', at: now };
+      ticket.proposals.push(proposal);
+      thread.messages.push({ id: uid(), authorId: user.id, text: `Proposta versão ${proposal.version} enviada por ${user.name}: R$ ${(amount / 100).toFixed(2).replace('.', ',')}. Aguarda aprovação da outra parte.`, at: now, system: true });
       if (!ticket.proposals.some(p => p.status === 'accepted')) ticket.status = 'proposal';
       if (!ticket.startedAt) ticket.startedAt = now;
-      notify(state, ticket.clientId, 'Uma proposta chegou', 'Confira o escopo e as condições antes de aprovar.', ticket.id, now);
+      notify(state, client ? ticket.professionalId : ticket.clientId, 'Uma proposta chegou', 'Confira o valor e as condições antes de aprovar ou enviar uma contraproposta.', ticket.id, now);
     } else if (action === 'proposalDecision') {
-      requireThat(client && open, 'Somente o cliente pode avaliar esta proposta.');
+      requireThat(open, 'Este atendimento está encerrado.');
       const proposal = ticket.proposals.find(p => p.id === payload.proposalId && p.status === 'pending' && p.threadId === thread.id);
       requireThat(proposal, 'Proposta não está mais disponível.', 409);
+      requireThat(proposalAuthor(proposal) !== user.id, 'Somente a outra parte pode aprovar ou recusar esta proposta.', 403);
       requireThat(['accepted', 'declined'].includes(payload.decision), 'Decisão inválida.');
+      if (payload.decision === 'accepted') {
+        requireThat(!proposalExpired(proposal, now), 'Esta proposta venceu. Solicite uma nova proposta atualizada.', 409);
+        requireThat(Number.isSafeInteger(proposal.amount) && proposal.amount > 0, 'Solicite uma proposta com valor monetário válido.', 409);
+      }
       proposal.status = payload.decision; proposal.decidedAt = now; proposal.decidedBy = user.id;
       if (proposal.status === 'accepted') { ticket.proposals.filter(p => p.id !== proposal.id && p.status === 'accepted').forEach(p => p.status = 'replaced'); ticket.status = 'contracted'; }
       else if (ticket.status === 'proposal') ticket.status = 'conversation';
-      notify(state, ticket.professionalId, proposal.status === 'accepted' ? 'Proposta aprovada' : 'Proposta recusada', ticket.code, ticket.id, now);
+      notify(state, proposalAuthor(proposal), proposal.status === 'accepted' ? 'Proposta aprovada' : 'Proposta recusada', ticket.code, ticket.id, now);
     } else if (action === 'startService') {
       requireThat(pro && ticket.status === 'contracted', 'É necessária uma proposta aprovada.'); ticket.status = 'progress';
     } else if (action === 'deliver') {
@@ -209,26 +336,52 @@ export function act(state, user, action, payload = {}, options = {}) {
     } else if (action === 'confirmReceipt') {
       requireThat(pro && ['contracted', 'progress', 'delivery'].includes(ticket.status), 'A confirmação exige um serviço contratado.');
       const file = thread.files.find(f => f.id === payload.fileId && f.receipt); requireThat(file, 'Comprovante não encontrado.');
-      file.confirmedAt = now; file.confirmedBy = user.id;
+      const proposal = currentProposal(ticket);
+      requireThat(proposal && payload.proposalId === proposal.id, 'A proposta mudou. Atualize a página e confira o pagamento do acordo atual.', 409);
+      file.confirmations ||= [];
+      file.confirmations.push({ at: now, by: user.id, proposalId: proposal.id, amount: proposal.amount });
+      file.confirmedAt = now; file.confirmedBy = user.id; file.confirmedProposalId = proposal.id; file.confirmedAmount = proposal.amount;
     } else if (action === 'complete') {
       requireThat(pro && ticket.status === 'delivery', 'Registre a entrega antes de concluir.');
-      requireThat(thread.files.some(f => f.receipt && f.confirmedAt), 'Confira e confirme o recebimento do pagamento antes de concluir.');
+      requireThat(thread.files.some(f => receiptConfirmed(f, currentProposal(ticket))), 'Confira e confirme o recebimento do pagamento da proposta atual antes de concluir.');
       ticket.status = 'completed'; ticket.closedAt = now; thread.closedAt = now;
+      finalizePending(ticket, now);
       notify(state, ticket.clientId, 'Atendimento concluído', 'Seu histórico estará disponível por 30 dias.', ticket.id, now); notifyVacancy(state, user.id, now);
     } else if (action === 'closeNoCharge') {
       requireThat(pro && ['conversation', 'proposal'].includes(ticket.status) && text(payload.reason).length >= 5, 'Informe um motivo. Serviços contratados exigem tratamento pelo suporte.');
-      ticket.status = 'cancelled'; ticket.closedAt = now; ticket.closeReason = text(payload.reason, 300); thread.closedAt = now; notifyVacancy(state, user.id, now);
-      notify(state, ticket.clientId, 'Atendimento encerrado sem cobrança', ticket.code, ticket.id, now);
+      closeTicket(state, ticket, now, text(payload.reason, 300));
     } else if (action === 'appointment') {
-      requireThat(open && thread, 'Atendimento indisponível.');
+      requireThat(pro && open && thread, 'Somente o especialista responsável pode registrar o agendamento.', 403);
       requireThat(Number.isFinite(Date.parse(payload.date)) && Date.parse(payload.date) > Date.parse(now), 'Escolha uma data futura.');
       requireThat(text(payload.location).length >= 3, 'Informe local ou orientação para a reunião.');
-      ticket.appointments.push({ id: uid(), authorId: user.id, threadId: thread.id, date: new Date(payload.date).toISOString(), location: text(payload.location, 300), status: 'pending', at: now });
+      if (payload.replacesId) {
+        const original = ticket.appointments.find(a => a.id === payload.replacesId && a.threadId === thread.id);
+        requireThat(original && ['pending', 'confirmed'].includes(original.status), 'O horário original não está mais disponível para reagendar.', 409);
+        requireThat(!ticket.appointments.some(a => a.replacesId === original.id && a.status === 'pending'), 'Já existe um reagendamento aguardando resposta para este encontro.', 409);
+      }
+      ticket.appointments.push({ id: uid(), authorId: user.id, threadId: thread.id, date: new Date(payload.date).toISOString(), location: text(payload.location, 300), status: 'pending', at: now, replacesId: payload.replacesId || null });
+      if (!ticket.startedAt) ticket.startedAt = now;
       notify(state, client ? ticket.professionalId : ticket.clientId, 'Novo horário proposto', ticket.code, ticket.id, now);
     } else if (action === 'appointmentDecision') {
       const appointment = ticket.appointments.find(a => a.id === payload.id && a.threadId === thread?.id);
       requireThat(open && appointment && appointment.authorId !== user.id && appointment.status === 'pending', 'Agendamento indisponível.');
-      requireThat(['confirmed', 'declined'].includes(payload.decision), 'Decisão inválida.'); appointment.status = payload.decision;
+      requireThat(['confirmed', 'declined'].includes(payload.decision), 'Decisão inválida.');
+      if (payload.decision === 'confirmed' && appointment.replacesId) {
+        const original = ticket.appointments.find(a => a.id === appointment.replacesId && a.threadId === thread.id);
+        requireThat(original && ['pending', 'confirmed'].includes(original.status), 'O encontro original foi alterado. Solicite um novo agendamento.', 409);
+        original.status = 'superseded'; original.supersededAt = now; original.supersededBy = appointment.id;
+      }
+      appointment.status = payload.decision; appointment.decidedAt = now; appointment.decidedBy = user.id;
+      notify(state, ticket.professionalId, 'Agendamento atualizado', ticket.code, ticket.id, now);
+    } else if (action === 'cancelAppointment') {
+      const appointment = ticket.appointments.find(a => a.id === payload.id && a.threadId === thread?.id);
+      requireThat(open && appointment && ['pending', 'confirmed'].includes(appointment.status), 'Agendamento indisponível.', 409);
+      requireThat(text(payload.reason).length >= 5, 'Informe o motivo do cancelamento em pelo menos 5 caracteres.');
+      for (const a of ticket.appointments.filter(a => a.id === appointment.id || (a.replacesId === appointment.id && a.status === 'pending'))) {
+        a.status = 'cancelled'; a.cancelledAt = now; a.cancelledBy = user.id; a.cancelReason = text(payload.reason, 300);
+      }
+      thread.messages.push({ id: uid(), authorId: user.id, text: `Agendamento de ${appointment.date} cancelado: ${text(payload.reason, 300)}`, at: now, system: true });
+      notify(state, client ? ticket.professionalId : ticket.clientId, 'Agendamento cancelado', ticket.code, ticket.id, now);
     } else if (action === 'review') {
       requireThat(client && ticket.status === 'completed' && ticket.professionalId && !ticket.review, 'A avaliação exige um atendimento concluído e só pode ser enviada uma vez.');
       requireThat(Number.isInteger(Number(payload.rating)) && Number(payload.rating) >= 1 && Number(payload.rating) <= 5, 'Escolha uma nota de 1 a 5.');
