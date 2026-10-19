@@ -5,7 +5,7 @@ const NOW = '2026-10-14T13:00:00.000Z';
 function setup() {
   const state = createState(NOW); const user = id => state.users.find(u => u.id === id);
   const run = (id, action, payload = {}, options = {}) => act(state, user(id), action, payload, { now: NOW, hour: 10, ...options });
-  const create = (service = 'Suporte técnico', owner = 'cliente', extra = {}) => run(owner, 'createTicket', { sector: 'ti', service, region: 'PE', city: 'Recife', modality: 'Remoto', title: 'Notebook sem conexão', description: 'Meu notebook não está conseguindo conectar na rede de testes.', agreed: true, ...extra }).ticketId;
+  const create = (service = 'Suporte técnico', owner = 'cliente', extra = {}) => run(owner, 'createTicket', { sector: 'ti', service, region: 'PE', city: 'Recife', title: 'Notebook sem conexão', description: 'Meu notebook não está conseguindo conectar na rede de testes.', agreed: true, ...extra }).ticketId;
   return { state, user, run, create };
 }
 test('expediente considera 08:00 inclusivo e 19:00 exclusivo no fuso brasileiro', () => {
@@ -27,7 +27,7 @@ test('aceite é exclusivo e o terceiro atendimento é bloqueado', () => {
 });
 test('engenheiros também respeitam dois projetos simultâneos', () => {
   const { state, run, create } = setup();
-  const make = () => create('Projeto civil', 'cliente', { sector: 'engenharia', modality: 'Presencial' });
+  const make = () => create('Projeto civil', 'cliente', { sector: 'engenharia' });
   run('marcos', 'accept', { ticketId: make() }); run('marcos', 'accept', { ticketId: make() });
   assert.throws(() => run('marcos', 'accept', { ticketId: make() }), /dois chamados/);
   assert.equal(activeCount(state, 'marcos'), 2);
@@ -66,7 +66,10 @@ test('fim do atendimento exige entrega e recebimento confirmado', () => {
   run('cliente', 'upload', { ticketId, name: 'comprovante.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.4 teste').toString('base64'), receipt: true });
   assert.throws(() => run('bruno', 'complete', { ticketId }), /recebimento/);
   run('bruno', 'confirmReceipt', { ticketId, fileId: state.tickets[0].threads[0].files[0].id });
-  run('bruno', 'complete', { ticketId }); assert.equal(state.tickets[0].status, 'completed'); assert.equal(activeCount(state, 'bruno'), 0);
+  const closedAt = '2026-10-14T17:32:18.000Z';
+  run('bruno', 'complete', { ticketId, closedAt: '1999-01-01T00:00:00.000Z' }, { now: closedAt });
+  assert.equal(state.tickets[0].status, 'completed'); assert.equal(activeCount(state, 'bruno'), 0);
+  assert.equal(state.tickets[0].createdAt, NOW); assert.equal(state.tickets[0].closedAt, closedAt); assert.equal(state.tickets[0].threads[0].closedAt, closedAt);
 });
 test('comprovante não pode ser atribuído por um profissional', () => {
   const { run, create } = setup(); const ticketId = create(); run('bruno', 'accept', { ticketId });
@@ -135,4 +138,46 @@ test('avaliação é opcional, exclusiva do cliente e vinculada ao especialista 
   assert.equal(state.tickets[0].review.comment, 'Atendimento excelente.');
   assert.throws(() => run('cliente', 'review', { ticketId, rating: 4 }), /uma vez/);
   assert.ok(state.notifications.some(n => n.userId === 'bruno' && n.title === 'Você recebeu uma avaliação'));
+});
+test('dados de conta são editáveis apenas no próprio perfil e ficam fora do catálogo público', () => {
+  const { state, user, run } = setup();
+  run('bruno', 'profile', { name: 'Bruno Teste', contactEmail: 'bruno.contato@example.test', phone: '(81) 90000-1234', region: 'PE', city: 'Recife', available: true, bio: 'Suporte de computadores.' });
+  const own = projectState(state, user('bruno')).user;
+  assert.equal(own.phone, '(81) 90000-1234'); assert.equal(own.city, 'Recife'); assert.equal(own.contactEmail, 'bruno.contato@example.test');
+  assert.equal(own.username, 'bruno'); assert.equal(own.initials, 'BT');
+  const publicProfile = projectState(state, user('cliente')).professionals.find(p => p.id === 'bruno');
+  for (const field of ['phone', 'contactEmail', 'region', 'city', 'email']) assert.ok(!Object.hasOwn(publicProfile, field), field);
+  run('cliente', 'profile', { name: 'Cliente Teste', userId: 'bruno', phone: '(91) 90000-4321' });
+  assert.equal(user('bruno').name, 'Bruno Teste'); assert.equal(user('bruno').phone, '(81) 90000-1234');
+});
+test('validação de contato evita gravação parcial e campos opcionais podem ser limpos', () => {
+  const { user, run } = setup(); const before = structuredClone(user('cliente'));
+  assert.throws(() => run('cliente', 'profile', { name: 'Nome Alterado', contactEmail: 'invalido' }), /e-mail/);
+  assert.deepEqual(user('cliente'), before);
+  assert.throws(() => run('cliente', 'profile', { name: 'Nome Alterado', phone: 'abc123' }), /telefone/);
+  assert.deepEqual(user('cliente'), before);
+  run('cliente', 'profile', { name: 'user', contactEmail: 'user.contato@example.test', phone: '(81) 90000-1234', region: 'PE', city: 'Recife' });
+  run('cliente', 'profile', { name: 'user', contactEmail: '', phone: '', region: '', city: '' });
+  for (const field of ['phone', 'contactEmail', 'region', 'city']) assert.equal(user('cliente')[field], '');
+});
+test('modalidade é combinada no chat, inclusive em engenharia, e não filtra o aceite inicial', () => {
+  const { state, user, run, create } = setup();
+  const ticketId = create('Projeto civil', 'cliente', { sector: 'engenharia', modality: 'Remoto' });
+  const ticket = state.tickets.find(t => t.id === ticketId);
+  assert.equal(ticket.modality, 'A combinar');
+  assert.ok(projectState(state, user('marcos')).tickets.some(t => t.id === ticketId));
+  assert.ok(state.notifications.some(n => n.userId === 'marcos' && n.ticketId === ticketId));
+  run('marcos', 'accept', { ticketId });
+  run('cliente', 'message', { ticketId, text: 'Podemos combinar uma visita presencial?' });
+  run('marcos', 'message', { ticketId, text: 'Sim, vamos combinar os detalhes por aqui.' });
+  assert.equal(ticket.threads[0].messages.length, 2);
+});
+test('abertura e encerramento usam o relógio do sistema e ignoram preferências ou datas enviadas pelo cliente', () => {
+  const { state, run, create } = setup();
+  const ticketId = create('Suporte técnico', 'cliente', { preferences: 'Qualquer horário', createdAt: '1999-01-01T00:00:00.000Z', closedAt: '1999-01-02T00:00:00.000Z' });
+  const ticket = state.tickets.find(t => t.id === ticketId);
+  assert.equal(ticket.createdAt, NOW); assert.equal(ticket.closedAt, null); assert.equal(Object.hasOwn(ticket, 'preferences'), false);
+  const closing = '2026-10-14T14:45:12.000Z';
+  run('cliente', 'cancel', { ticketId, closedAt: '1999-01-02T00:00:00.000Z' }, { now: closing });
+  assert.equal(ticket.createdAt, NOW); assert.equal(ticket.closedAt, closing);
 });

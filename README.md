@@ -44,11 +44,12 @@ Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos 
 
 - Interface responsiva, identidade visual própria, navegação acessível e recursos SVG locais.
 - Páginas de setores, diretório de especialistas, busca por nome/especialidade, ajuda, termos e privacidade.
-- Formulário em três etapas, perguntas por serviço e rascunho no navegador.
+- Formulário em três etapas, perguntas por serviço e rascunho no navegador, acessível apenas após login. O setor escolhido é preservado durante a autenticação.
+- Sem campo de preferência de dias ou horários no formulário. A abertura é registrada automaticamente ao enviar a solicitação; a conclusão ou cancelamento registra o encerramento. Data, ano, hora, minuto e segundo aparecem no acompanhamento e na administração, no horário de Brasília. Os horários são gerados pelo sistema e não podem ser definidos pelo formulário.
 - Cadastro de clientes, login por senha com hash scrypt e cookies HttpOnly; recuperação simulada em ambiente de teste.
 - Login temporário por usuário e senha para cliente, especialista e administrador, sem seleção de perfis na tela de acesso.
 - Perfis profissionais apenas para exibição na página Especialistas; nenhuma escolha ou reserva de profissional ao solicitar atendimento.
-- Encaminhamento por especialidade, região, modalidade, disponibilidade e situação do perfil.
+- Encaminhamento por especialidade, região, disponibilidade e situação do perfil. Novos chamados começam com atendimento **a combinar**; remoto ou presencial é acordado entre cliente e especialista no chat.
 - Aceite exclusivo e limite transacional de **dois chamados ativos por profissional**, incluindo projetos de engenharia.
 - Chat privado com atualização a cada cinco segundos e histórico persistente no servidor local.
 - Anexos privados em PDF, PNG e JPG, limitados a 2 MB por arquivo e 15 por conversa.
@@ -67,7 +68,7 @@ Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos 
 
 ## Roteiro para testar o fluxo completo
 
-1. Entre com **user / 123**. Crie um chamado em TI → Suporte técnico, Recife, remoto. Não é possível escolher um especialista.
+1. Clique em **Solicitar atendimento**. Se ainda não estiver autenticado, entre com **user / 123** antes de acessar o formulário. Crie um chamado em TI → Suporte técnico, Recife. O tipo de atendimento será combinado no chat; o formulário não permite escolher especialista ou modalidade.
 2. Use **Trocar conta** e entre com **bruno / 123**. Abra a fila, aceite o chamado e envie uma mensagem e uma proposta.
 3. Entre novamente como **user / 123** e aprove a proposta. Combine um horário se desejar.
 4. Entre como **bruno / 123**, inicie a execução e registre a entrega.
@@ -129,6 +130,14 @@ Não use `npm start` como comando de build. Ele inicia o servidor local e não g
 - `SITE_URL` gera URLs canônicas e `sitemap.xml` durante o build. O workflow usa a URL do repositório no GitHub Pages.
 - Não há promessas de ranking, avaliações fabricadas ou páginas locais artificiais.
 - A sigla DEO não foi definida; não há integração proprietária anunciada com esse nome.
+
+## Prévia local e menu da conta
+
+As alterações de interface devem ser revisadas em uma prévia local antes de qualquer envio ao GitHub. O envio remoto depende de autorização explícita do responsável.
+
+Ao entrar, clique na seta ao lado do nome e da foto no canto superior direito. O menu apresenta **Minha conta** e **Sair** para clientes, especialistas e administrador. Ele fecha ao clicar fora, ao navegar ou ao pressionar Escape; as opções também funcionam por teclado.
+
+Em **Minha conta**, é possível preencher nome, e-mail de contato, telefone, estado e cidade. Os campos de contato são opcionais e privados. O usuário de acesso não muda ao salvar os dados. Especialistas continuam podendo atualizar apresentação e disponibilidade. O formulário mostra o preenchimento do cadastro e preserva os valores salvos ao acessar novamente.
 
 ## Testes
 

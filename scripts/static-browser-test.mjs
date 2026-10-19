@@ -29,10 +29,15 @@ try {
   await cdp('Runtime.enable');
   await cdp('Page.navigate', { url: origin }); await wait('!!document.querySelector(".hero")');
   assert.equal(await evaluate('document.documentElement.dataset.mode'), 'static');
-  await evaluate('location.hash="/entrar"'); await wait('!!document.querySelector("#auth-form")');
+  await evaluate('location.hash="/novo?setor=engenharia"'); await wait('location.hash === "#/entrar" && !!document.querySelector("#auth-form")');
+  assert.equal(await evaluate('!!document.querySelector("#request-form")'), false);
   await evaluate('document.querySelector("#login").value="user"; document.querySelector("#password").value="errada"; document.querySelector("#auth-form").requestSubmit()');
   await wait('document.querySelector("#form-error")?.textContent.includes("inválidos")');
   await evaluate('document.querySelector("#password").value="123"; document.querySelector("#auth-form").requestSubmit()'); await wait('!document.querySelector("#auth-form") && !!document.querySelector(".demo-banner")');
+  await wait('!!document.querySelector("#request-form")');
+  assert.equal(await evaluate('location.hash'), '#/novo?setor=engenharia');
+  assert.equal(await evaluate('document.querySelector(".selection.selected").dataset.id'), 'engenharia');
+  assert.equal(await evaluate('!!document.querySelector("[name=modality]")'), false);
   assert.match(await evaluate('document.querySelector(".demo-banner").textContent'), /neste navegador/);
   await cdp('Page.navigate', { url: origin + 'servicos/ti/' }); await wait('!!document.querySelector(".page-head") && document.querySelector("h1")?.textContent === "Tecnologia da informação"');
   assert.equal(await evaluate('new URL(document.querySelector("link[rel=stylesheet]").href).pathname'), '/MVP-solucoes/styles.css');

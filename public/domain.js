@@ -43,7 +43,7 @@ export function fail(message, status = 400) { const error = new Error(message); 
 export function requireThat(condition, message, status = 400) { if (!condition) fail(message, status); }
 export function text(value, max = 4000) { return String(value ?? '').trim().slice(0, max); }
 export function activeCount(state, userId) { return state.tickets.filter(t => t.professionalId === userId && !CLOSED.includes(t.status)).length; }
-export function compatible(user, ticket) { return user.active && user.available && user.role === 'professional' && user.sector === ticket.sector && user.services.includes(ticket.service) && user.regions.includes(ticket.region) && user.modalities.includes(ticket.modality); }
+export function compatible(user, ticket) { return user.active && user.available && user.role === 'professional' && user.sector === ticket.sector && user.services.includes(ticket.service) && user.regions.includes(ticket.region) && (!ticket.modality || ticket.modality === 'A combinar' || user.modalities.includes(ticket.modality)); }
 export function businessOpen(date = new Date(), simulatedHour = null) {
   const hour = simulatedHour === null ? Number(new Intl.DateTimeFormat('en-US', { hour: '2-digit', hourCycle: 'h23', timeZone: 'America/Recife' }).format(date)) : Number(simulatedHour);
   return hour >= 8 && hour < 19;
@@ -79,7 +79,7 @@ function publicUser(user, state) {
 export function projectState(state, user) {
   normalizeState(state);
   return {
-    user: user ? { ...publicUser(user, state), username: user.username, email: user.email, admin: !!user.admin } : null,
+    user: user ? { ...publicUser(user, state), username: user.username, email: user.email, phone: user.phone || '', contactEmail: user.contactEmail ?? (user.email?.endsWith('@example.test') ? '' : user.email || ''), city: user.city || '', region: user.region || '', admin: !!user.admin } : null,
     professionals: state.users.filter(u => u.role === 'professional').map(u => publicUser(u, state)),
     tickets: user ? state.tickets.filter(t => t.clientId === user.id || t.professionalId === user.id || t.threads.some(th => th.professionalId === user.id) || (t.status === 'waiting' && compatible(user, t) && t.excludedProfessionalId !== user.id)).map(t => {
       const own = t.clientId === user.id || t.professionalId === user.id;
@@ -91,7 +91,7 @@ export function projectState(state, user) {
     notifications: user ? state.notifications.filter(n => n.userId === user.id) : [],
     support: user ? state.support.filter(s => s.userId === user.id || user.admin).map(s => ({ ...s })) : [],
     admin: user?.admin ? {
-      tickets: state.tickets.map(t => ({ id: t.id, code: t.code, sector: t.sector, service: t.service, status: t.status, professionalId: t.professionalId, createdAt: t.createdAt, updatedAt: t.updatedAt })),
+      tickets: state.tickets.map(t => ({ id: t.id, code: t.code, sector: t.sector, service: t.service, status: t.status, professionalId: t.professionalId, createdAt: t.createdAt, closedAt: t.closedAt, updatedAt: t.updatedAt })),
       audit: state.audit.slice(-100).reverse(), users: state.users.map(u => ({ id: u.id, name: u.name, role: u.role, active: u.active }))
     } : null
   };
@@ -107,19 +107,28 @@ export function act(state, user, action, payload = {}, options = {}) {
     const sector = SECTORS[payload.sector];
     requireThat(sector && sector.services.includes(payload.service), 'Selecione um setor e um serviço válidos.');
     requireThat(['PE', 'Belem'].includes(payload.region), 'Atendemos Pernambuco e Belém–PA.');
-    requireThat(['Remoto', 'Presencial'].includes(payload.modality), 'Escolha a modalidade.');
-    requireThat(payload.sector !== 'engenharia' || payload.modality === 'Presencial', 'Engenharia civil está disponível presencialmente neste piloto.');
     requireThat(text(payload.title).length >= 5 && text(payload.description).length >= 20, 'Informe um título e descreva sua necessidade em pelo menos 20 caracteres.');
     requireThat(payload.agreed === true, 'Confirme que leu as condições da solicitação.');
-    const ticket = { id: uid(), code: `MVP-${String(state.tickets.length + 1).padStart(4, '0')}`, clientId: user.id, sector: payload.sector, service: payload.service, region: payload.region, city: payload.region === 'Belem' ? 'Belém' : text(payload.city, 80), modality: payload.modality, title: text(payload.title, 100), description: text(payload.description), details: text(payload.details, 1000), preferences: text(payload.preferences, 200), status: 'waiting', professionalId: null, startedAt: null, createdAt: now, updatedAt: now, closedAt: null, threads: [], proposals: [], appointments: [], review: null };
+    const ticket = { id: uid(), code: `MVP-${String(state.tickets.length + 1).padStart(4, '0')}`, clientId: user.id, sector: payload.sector, service: payload.service, region: payload.region, city: payload.region === 'Belem' ? 'Belém' : text(payload.city, 80), modality: 'A combinar', title: text(payload.title, 100), description: text(payload.description), details: text(payload.details, 1000), status: 'waiting', professionalId: null, startedAt: null, createdAt: now, updatedAt: now, closedAt: null, threads: [], proposals: [], appointments: [], review: null };
     requireThat(ticket.city.length >= 2, 'Informe a cidade de atendimento.');
     requireThat(state.tickets.filter(t => t.clientId === user.id && !CLOSED.includes(t.status)).length < 10, 'Você já possui dez solicitações abertas. Conclua ou cancele uma antes de continuar.');
     state.tickets.unshift(ticket); notifyEligible(state, ticket, now); record(action, ticket.id); return { ticketId: ticket.id };
   }
   if (action === 'readNotifications') { state.notifications.filter(n => n.userId === user.id).forEach(n => n.read = true); return {}; }
   if (action === 'profile') {
-    user.name = text(payload.name || user.name, 70); requireThat(user.name.length >= 2, 'Informe seu nome.');
-    if (user.role === 'professional') { user.available = !!payload.available; user.bio = text(payload.bio, 800); }
+    const profile = { name: text(payload.name ?? user.name, 70) };
+    requireThat(profile.name.length >= 2, 'Informe seu nome com pelo menos dois caracteres.');
+    for (const key of ['phone', 'contactEmail', 'city', 'region']) if (Object.hasOwn(payload, key)) profile[key] = text(payload[key], key === 'contactEmail' ? 254 : key === 'city' ? 80 : 25);
+    if (profile.phone) requireThat(/^[+\d()\s-]+$/.test(profile.phone) && profile.phone.replace(/\D/g, '').length >= 8 && profile.phone.replace(/\D/g, '').length <= 15, 'Informe um telefone válido com DDD, ou deixe em branco.');
+    if (profile.contactEmail) requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.contactEmail), 'Informe um e-mail de contato válido, ou deixe em branco.');
+    if (Object.hasOwn(profile, 'region')) requireThat(['', 'PE', 'PA'].includes(profile.region), 'Selecione Pernambuco ou Pará, ou deixe em branco.');
+    const names = profile.name.split(/\s+/);
+    profile.initials = (names.length > 1 ? names[0][0] + names.at(-1)[0] : profile.name.slice(0, 2)).toLocaleUpperCase('pt-BR');
+    Object.assign(user, profile);
+    if (user.role === 'professional') {
+      if (Object.hasOwn(payload, 'available')) user.available = !!payload.available;
+      if (Object.hasOwn(payload, 'bio')) user.bio = text(payload.bio, 800);
+    }
     record(action); return {};
   }
   if (action === 'support') {

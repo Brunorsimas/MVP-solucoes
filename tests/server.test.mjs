@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server.mjs';
-const payload = { sector: 'ti', service: 'Suporte técnico', region: 'PE', city: 'Recife', modality: 'Remoto', title: 'Notebook com defeito', description: 'Descrição fictícia com detalhes suficientes para o teste.', agreed: true };
+const payload = { sector: 'ti', service: 'Suporte técnico', region: 'PE', city: 'Recife', title: 'Notebook com defeito', description: 'Descrição fictícia com detalhes suficientes para o teste.', agreed: true };
 test('API: sessão, CSRF, aceite concorrente, isolamento e fluxo completo', async t => {
   const app = createApp({ database: ':memory:' }); await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve)); t.after(() => app.close());
   const origin = `http://127.0.0.1:${app.server.address().port}`;
@@ -20,6 +20,7 @@ test('API: sessão, CSRF, aceite concorrente, isolamento e fluxo completo', asyn
   assert.equal((await client('/action', { action: 'createTicket', payload }, { 'X-CSRF-Token': 'invalid' })).status, 403);
   assert.equal((await client('/action', { action: 'createTicket', payload }, { Origin: 'https://evil.test' })).status, 403);
   const ticketId = (await client('/action', { action: 'createTicket', payload })).body.result.ticketId;
+  assert.equal((await client('/state')).body.tickets.find(t => t.id === ticketId).modality, 'A combinar');
   const attempts = await Promise.all([bruno('/action', { action: 'accept', payload: { ticketId } }), kleber('/action', { action: 'accept', payload: { ticketId } })]);
   assert.deepEqual(attempts.map(a => a.status).sort(), [200, 409]);
   const winner = attempts[0].status === 200 ? bruno : kleber;
@@ -62,4 +63,26 @@ test('API: cadastro, login, recuperação e invalidação de sessões', async t 
   assert.equal((await post('/auth/reset', { token: recover.data.demoToken, password: 'senha-nova-12345' })).status, 400);
   const view = await fetch(base + '/state', { headers: { cookie: register.cookie } }); assert.equal((await view.json()).user, null);
   assert.equal((await post('/auth/login', { email: 'teste@example.test', password: 'senha-nova-12345' })).status, 200);
+});
+test('API: atualização da conta preserva login e logout invalida a sessão', async t => {
+  const app = createApp({ database: ':memory:' }); await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve)); t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}/api`;
+  let cookie = '', csrf = '';
+  async function request(path, data) {
+    const response = await fetch(base + path, { method: data ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', cookie, 'X-CSRF-Token': csrf }, body: data ? JSON.stringify(data) : undefined });
+    const result = await response.json();
+    if (response.headers.has('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
+    if (result.csrf) csrf = result.csrf;
+    return { status: response.status, result };
+  }
+  await request('/auth/login', { login: 'user', password: '123' });
+  const update = await request('/action', { action: 'profile', payload: { name: 'user', phone: '(81) 90000-1234', contactEmail: 'contato@example.test', region: 'PE', city: 'Recife' } });
+  assert.equal(update.status, 200);
+  const saved = (await request('/state')).result.user;
+  assert.equal(saved.phone, '(81) 90000-1234'); assert.equal(saved.contactEmail, 'contato@example.test'); assert.equal(saved.username, 'user');
+  const oldCookie = cookie;
+  assert.equal((await request('/auth/logout', {})).status, 200);
+  assert.equal((await request('/state')).result.user, null);
+  const previousSession = await fetch(base + '/state', { headers: { cookie: oldCookie } }); assert.equal((await previousSession.json()).user, null);
+  assert.equal((await request('/action', { action: 'profile', payload: { name: 'Outra pessoa' } })).status, 401);
 });
