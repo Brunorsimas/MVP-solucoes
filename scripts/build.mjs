@@ -2,12 +2,18 @@ import { mkdir, readFile, writeFile, cp } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SECTORS } from '../public/domain.js';
+import { build } from 'esbuild';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const neon = !process.argv.includes('--static') && !!(process.env.NEON_AUTH_BASE_URL && process.env.NEON_FUNCTION_HELLO_BASE_URL);
+const shared = process.argv.includes('--shared') || neon;
+const publicConfig = neon ? { authUrl: process.env.NEON_AUTH_BASE_URL, apiUrl: process.env.NEON_FUNCTION_HELLO_BASE_URL } : {};
+for (const value of Object.values(publicConfig)) { if (new URL(value).protocol !== 'https:') throw Error('Neon public URLs must use HTTPS.'); }
 const output = resolve(root, 'dist');
 await mkdir(output, { recursive: true });
 await cp(resolve(root, 'public'), output, { recursive: true });
+await build({ entryPoints: [resolve(root, 'public/app.js')], outfile: resolve(output, 'app.js'), bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true, define: { __NEON_PUBLIC_CONFIG__: JSON.stringify(publicConfig) } });
 const original = await readFile(resolve(root, 'public/index.html'), 'utf8');
-const home = original.replace('<html lang="pt-BR">', '<html lang="pt-BR" data-mode="static">').replace('<base href="/">', '<base href="./">');
+const home = original.replace('<html lang="pt-BR">', `<html lang="pt-BR" data-mode="${shared ? 'shared' : 'static'}">`).replace('<base href="/">', '<base href="./">');
 await writeFile(resolve(output, 'index.html'), home);
 await writeFile(resolve(output, '.nojekyll'), '');
 await writeFile(resolve(output, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
@@ -27,4 +33,4 @@ if (origin) {
   if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?(?:\/[\w.-]+)*$/i.test(origin)) throw new Error('SITE_URL deve ser uma URL HTTPS válida sem query.');
   await writeFile(resolve(output, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[origin + '/', ...urls].map(url => `<url><loc>${url}</loc></url>`).join('')}</urlset>`);
 }
-console.log('Demonstração estática gerada em dist/. Dados ficam somente no navegador. Indexação bloqueada durante o MVP.');
+console.log(neon ? 'Build Neon gerado em dist/. Auth e API conectados por URLs públicas; segredos não são incluídos.' : shared ? 'Piloto compartilhado gerado em dist/. Requer API e DATABASE_URL no Netlify.' : 'Demonstração estática gerada em dist/. Dados ficam somente no navegador. Indexação bloqueada durante o MVP.');

@@ -4,7 +4,9 @@ Plataforma demonstrativa de atendimento em **Advocacia, Engenharia Civil e Tecno
 
 ## Executar o MVP funcional
 
-Requisito: **Node.js 24 ou superior**. Não é necessário instalar pacotes: servidor, SQLite, autenticação e testes usam módulos nativos.
+**Neon configurado para o piloto.** O projeto `holy-snow-61907956` utiliza Postgres, Neon Auth e uma API em Neon Functions. [Configuração, acessos da equipe e execução](docs/CONFIGURACAO-NEON.md). Com `.env.local` do Neon: `npm ci`, `npm run build` e `npm start` → http://127.0.0.1:4189/. O frontend Netlify precisa receber esta atualização de código após autorização de envio ao GitHub.
+
+Requisito: **Node.js 24 ou superior**. Execute `npm ci` para instalar o driver PostgreSQL e as dependências de teste. O servidor local legado continua usando SQLite nativo.
 
 ```powershell
 cd E:\Devs\Projetos\Albinur\mvp-solucoes
@@ -89,6 +91,7 @@ Para testar a capacidade, abra três chamados compatíveis e tente aceitar os tr
 | Versão | Persistência | Uso |
 | --- | --- | --- |
 | Servidor local (`npm start`) | SQLite no servidor; compartilhamento entre sessões autorizadas | Testar autenticação, permissões e fluxo funcional |
+| Piloto compartilhado (`npm run build:shared` + Netlify Functions) | PostgreSQL privado no servidor | Testes pela internet após configurar o banco online |
 | GitHub Pages (`npm run build`) | Somente localStorage/sessionStorage do navegador | Demonstrar interface e interações com dados fictícios |
 
 **A demonstração estática não é um backend multiusuário nem um ambiente seguro para dados reais.** Qualquer pessoa com acesso ao mesmo navegador pode acessar os dados de demonstração. O login temporário com senha `123` funciona nesta demonstração; o cadastro de novas contas exige o servidor local. Trocar de conta simula os participantes de uma conversa. Dados antigos são migrados sem apagar o histórico; a conta demonstrativa Ana passa a usar o login `user`.
@@ -111,7 +114,7 @@ python -m http.server 4180 --directory dist
 
 Abra http://127.0.0.1:4180. O build funciona também em subdiretórios do GitHub Pages. Páginas públicas de serviços têm HTML inicial próprio em `/servicos/advocacia/`, `/servicos/engenharia/` e `/servicos/ti/`.
 
-## Publicar a demonstração no Netlify
+## Publicar o piloto compartilhado no Netlify
 
 O arquivo `netlify.toml` na raiz configura a publicação automaticamente ao conectar o repositório `Brunorsimas/MVP-solucoes`:
 
@@ -119,15 +122,15 @@ O arquivo `netlify.toml` na raiz configura a publicação automaticamente ao con
 | --- | --- |
 | Production branch | `main` |
 | Base directory | raiz do repositório (`.`) |
-| Build command | `npm run build` |
+| Build command | `npm run build:shared` |
 | Publish directory | `dist` |
 | Node.js | `24` |
 
 Se um projeto já importado mostrar **Page not found**, execute um novo deploy do último commit depois de atualizar a configuração. O build cria `dist/index.html`; publicar a raiz do código-fonte ou deixar de executar o build não disponibiliza a página inicial correta.
 
-Para publicação manual por arrastar e soltar, execute `npm run build` localmente e envie a **pasta `dist`**, não a pasta do código-fonte.
+Arrastar apenas `dist/` publica a demonstração estática gerada por `npm run build`, sem banco compartilhado. O piloto compartilhado deve ser publicado junto com suas funções pelo fluxo configurado no repositório, após autorização.
 
-Não use `npm start` como comando de build. Ele inicia o servidor local e não gera os arquivos para publicação. O Netlify hospedará a demonstração estática, com dados no navegador; o servidor Node.js/SQLite não é implantado por essa configuração. A navegação da aplicação usa `#/...`, e as páginas públicas de serviços são arquivos HTML reais, sem necessidade de uma regra genérica que transforme todas as URLs em `index.html`.
+Não use `npm start` como comando de build. A configuração atual do Netlify publica o frontend compartilhado e as funções em `netlify/functions/`, com PostgreSQL via `DATABASE_URL` secreta no servidor. Consulte [o guia de ativação](docs/BANCO-COMPARTILHADO.md) antes de publicar. Sem o banco, a API responde com indisponibilidade; a plataforma não usa armazenamento do navegador como substituto. O build padrão `npm run build` permanece uma demonstração estática para GitHub Pages e não compartilha dados. A navegação usa `#/...` e as páginas públicas de serviços são arquivos HTML reais.
 
 ## SEO
 

@@ -1,0 +1,68 @@
+import assert from 'node:assert/strict';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+const origin = process.env.PREVIEW_URL || 'http://127.0.0.1:4188';
+const debug = `http://127.0.0.1:${process.env.CDP_PORT || 9333}`;
+const version = await fetch(debug + '/json/version').then(r => r.json());
+const socket = new WebSocket(version.webSocketDebuggerUrl);
+await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+let seq = 0; const pending = new Map(), contexts = [], errors = [];
+socket.onmessage = event => { const m = JSON.parse(event.data); if (m.id) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.reject(Error(m.error.message)) : p.resolve(m.result); } if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.text); };
+const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); });
+async function tab() {
+  const { browserContextId } = await send('Target.createBrowserContext'); contexts.push(browserContextId);
+  const { targetId } = await send('Target.createTarget', { url: origin + '/#/entrar', browserContextId });
+  const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
+  await send('Runtime.enable', {}, sessionId);
+  const evaluate = async expression => { const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId); if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+  const wait = async expression => { const end = Date.now() + 15000; while (Date.now() < end) { if (await evaluate(expression)) return; await new Promise(r => setTimeout(r, 100)); } throw Error('Timeout: ' + expression); };
+  const fill = (selector, values) => evaluate(`(() => { const f=document.querySelector(${JSON.stringify(selector)}); for(const [k,v] of Object.entries(${JSON.stringify(values)})){ const e=f.elements[k]; if(e.type==='checkbox') e.checked=v; else e.value=v; e.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
+  const click = async selector => { await wait(`!!document.querySelector(${JSON.stringify(selector)})`); await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`); };
+  const submit = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);
+  const state = () => evaluate("fetch('/api/state').then(r=>r.json())");
+  const nav = async route => { await evaluate(`location.hash=${JSON.stringify(route)}`); await new Promise(r => setTimeout(r, 150)); };
+  await wait('!!document.querySelector("#auth-form")');
+  return { sessionId, evaluate, wait, fill, click, submit, state, nav };
+}
+try {
+  const client = await tab(), specialist = await tab();
+  assert.equal(await client.evaluate('!!document.querySelector(".test-credentials")'), false);
+  assert.equal(await client.evaluate('document.querySelector("#auth-form").textContent.includes("é 123")'), false);
+  const email = `browser-${Date.now()}@example.test`, password = 'senha-qa-compartilhada';
+  await client.click('[data-action=authTab][data-id=register]');
+  await client.fill('#auth-form', { name: 'Cliente Navegador', email, password, agreed: true }); await client.submit('#auth-form');
+  await client.wait('!!document.querySelector(".user-trigger")');
+  assert.equal((await client.state()).user.email, email);
+  await client.nav('/novo?setor=ti');
+  await client.fill('#request-form', { service: 'Suporte técnico', region: 'PE', city: 'Recife' }); await client.submit('#request-form');
+  await client.wait('!!document.querySelector("#description")');
+  await client.fill('#request-form', { title: 'Teste de banco compartilhado', description: 'Notebook fictício sem conexão de rede para validar o banco compartilhado.' }); await client.submit('#request-form');
+  await client.wait('!!document.querySelector("input[name=agreed]")'); await client.fill('#request-form', { agreed: true }); await client.submit('#request-form');
+  await client.wait('location.hash.startsWith("#/chamado/")');
+  const route = await client.evaluate('location.hash.slice(1)');
+  const credentials = JSON.parse(readFileSync('data/shared-preview-access.json', 'utf8'));
+  await specialist.fill('#auth-form', { login: 'bruno', password: credentials.bruno }); await specialist.submit('#auth-form');
+  await specialist.wait('!!document.querySelector(".user-trigger")'); await specialist.nav(route);
+  await specialist.click('[data-action=acceptTicket]'); await specialist.wait('!!document.querySelector("#message-form")');
+  await specialist.fill('#message-form', { text: 'Mensagem do especialista em outra sessão.' }); await specialist.submit('#message-form');
+  await specialist.wait('document.querySelector(".messages").textContent.includes("outra sessão")');
+  // Polling is paused while a tab is hidden; reload reproduces opening from another device.
+  await client.evaluate('location.reload()'); await client.wait('!!document.querySelector("#message-form")');
+  await client.wait('document.querySelector(".messages").textContent.includes("outra sessão")');
+  const secondDevice = await tab();
+  assert.equal((await secondDevice.state()).user, null);
+  await secondDevice.fill('#auth-form', { login: email, password }); await secondDevice.submit('#auth-form');
+  await secondDevice.wait('!!document.querySelector(".user-trigger")');
+  assert.equal((await secondDevice.state()).user.email, email);
+  assert.ok((await secondDevice.state()).tickets.some(t => t.id === route.split('/').at(-1)));
+  assert.equal(await client.evaluate('document.querySelector(".demo-banner").textContent.includes("compartilhados entre dispositivos")'), true);
+  await secondDevice.click('#profile-menu-trigger'); await secondDevice.click('[data-action=logout]');
+  await secondDevice.wait('!document.querySelector(".user-trigger")');
+  assert.equal((await client.state()).user.email, email, 'logout in another browser does not revoke this browser');
+  assert.deepEqual(errors, []);
+  mkdirSync('artifacts', { recursive: true });
+  const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }, client.sessionId);
+  writeFileSync('artifacts/shared-database-preview.png', Buffer.from(screenshot.data, 'base64'));
+  writeFileSync('artifacts/shared-browser-results.json', JSON.stringify({ passed: true, checks: ['signup persisted', 'request form', 'isolated specialist session', 'shared private chat', 'second device login', 'logout', 'no public demo passwords', 'no JS errors'] }, null, 2));
+  await client.evaluate(`(async () => { const s=await fetch('/api/state').then(r=>r.json()); const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf},body:JSON.stringify({action:'cancel',payload:{ticketId:${JSON.stringify(route.split('/').at(-1))},reason:'Fim do teste automatizado do banco compartilhado'}})}); if(!r.ok) throw Error('Falha ao encerrar teste'); })()`);
+  console.log('Navegador: cadastro, chamado, aceite, chat, acesso em sessão independente e logout aprovados.');
+} finally { for (const browserContextId of contexts) await send('Target.disposeBrowserContext', { browserContextId }); socket.close(); }
