@@ -32,6 +32,8 @@ Esse comando gera explicitamente a demonstração sem backend. Após utilizá-lo
 
 ## Cadastros e especialistas
 
+Os usuários existentes entram sem informar e-mail pelo login `user`, `tayane`, `miguel`, `feuzer`, `marcos`, `maria`, `bruno`, `stefanny` ou `kleber` e senha `123`, quando o modo temporário está habilitado na API. Tayane atua em **Direito criminal** e Miguel como **Advogado geral**, com encaminhamento por serviço correspondente. A migração atualiza os perfis demonstrativos antigos sem transferir ou apagar atendimentos já assumidos.
+
 Clientes usam **Criar conta** e entram com seu email e senha, de 10 a 128 caracteres. As credenciais do Neon Auth continuam individuais. O acesso temporário descrito abaixo é separado do provedor e não altera essas senhas.
 
 ### Acesso temporário solicitado para os testes

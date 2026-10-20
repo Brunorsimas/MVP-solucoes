@@ -5,7 +5,7 @@ import { readDraft, writeDraft, discardDraft } from '../public/drafts.js';
 import { createApp } from '../server.mjs';
 
 const NOW = '2026-10-19T13:00:00.000Z';
-function setup(sector = 'advocacia', service = 'Advocacia geral', pro = 'tayane') {
+function setup(sector = 'advocacia', service = 'Direito criminal', pro = 'tayane') {
   const state = createState(NOW);
   const run = (who, action, payload = {}, now = NOW) => act(state, state.users.find(u => u.id === who), action, payload, { now, hour: 10 });
   const id = run('cliente', 'createTicket', { sector, service, city: 'Recife', region: 'PE', title: 'Solicitação fictícia', description: 'Descrição fictícia suficiente para testar as correções.', agreed: true }).ticketId;
@@ -110,7 +110,7 @@ test('validades antigas numéricas migram, texto indeterminado exige nova propos
 
 test('valor é livremente negociado e configurações antigas de preço não impõem piso',()=>{
   const {state,run,id,proposal,ticket}=setup();
-  state.proposalMinimums={advocacia:{default:100000,services:{'Advocacia geral':200000}}};
+  state.proposalMinimums={advocacia:{default:100000,services:{'Direito criminal':200000}}};
   const p=proposal('0.01');run('cliente','proposalDecision',{ticketId:id,proposalId:p.id,decision:'accepted'});
   assert.equal(ticket.status,'contracted');assert.equal(p.amount,1);
   assert.equal(Object.hasOwn(projectState(state,null),'proposalMinimums'),false);
@@ -118,7 +118,7 @@ test('valor é livremente negociado e configurações antigas de preço não imp
 });
 
 test('cada assunto de todos os setores rejeita frações de centavo e aceita mínimo exato',()=>{
-  for (const [sector,service,pro] of [['advocacia','Advocacia geral','tayane'],['advocacia','Direito criminal','miguel'],['engenharia','Projeto civil','marcos'],['engenharia','Vistoria e visita técnica','marcos'],['engenharia','Reforma e acompanhamento','marcos'],['ti','Suporte técnico','bruno'],['ti','Conserto de computador','bruno'],['ti','Montagem de PC','bruno'],['ti','Desenvolvimento de software','stefanny'],['ti','Engenharia de dados','kleber']]){
+  for (const [sector,service,pro] of [['advocacia','Advocacia geral','miguel'],['advocacia','Direito criminal','tayane'],['engenharia','Projeto civil','marcos'],['engenharia','Vistoria e visita técnica','marcos'],['engenharia','Reforma e acompanhamento','marcos'],['ti','Suporte técnico','bruno'],['ti','Conserto de computador','bruno'],['ti','Montagem de PC','bruno'],['ti','Desenvolvimento de software','stefanny'],['ti','Engenharia de dados','kleber']]){
     const c=setup(sector,service,pro);assert.throws(()=>c.proposal(0.001), /duas casas/);const p=c.proposal('0.01');c.approve(p);assert.equal(p.amount,1);
   }
   for(const bad of [0,-1,0.001,true,null,'NaN','1e3',10000000.01]) assert.equal(priceInCents(bad),null);
@@ -131,7 +131,7 @@ test('API rejeita centavos inválidos e aprovação de proposta vencida sem alte
   const agent=()=>{let cookie='',csrf='';return async(path,data)=>{const r=await fetch(origin+'/api'+path,{method:data?'POST':'GET',headers:{Cookie:cookie,'Content-Type':'application/json','X-CSRF-Token':csrf},body:data?JSON.stringify(data):undefined});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const body=await r.json();csrf=body.csrf||csrf;return {status:r.status,body};};};
   const client=agent(),legal=agent(),admin=agent();await client('/auth/login',{login:'user',password:'123'});await legal('/auth/login',{login:'tayane',password:'123'});await admin('/auth/login',{login:'bruno',password:'123'});
   const action=(a,action,payload)=>a('/action',{action,payload});
-  const id=(await action(client,'createTicket',{sector:'advocacia',service:'Advocacia geral',region:'PE',city:'Recife',title:'Consulta fictícia',description:'Descrição de teste de segurança da API.',agreed:true})).body.result.ticketId;
+  const id=(await action(client,'createTicket',{sector:'advocacia',service:'Direito criminal',region:'PE',city:'Recife',title:'Consulta fictícia',description:'Descrição de teste de segurança da API.',agreed:true})).body.result.ticketId;
   await action(legal,'accept',{ticketId:id});
   const base={ticketId:id,amount:0.001,scope:'Serviço fictício para testar',deadline:'2 dias',terms:'Na entrega',validityDays:1};
   assert.equal((await action(legal,'proposal',base)).status,400);assert.equal(app.load().tickets[0].proposals.length,0);

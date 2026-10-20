@@ -7,8 +7,8 @@ export const STATUS = { waiting: 'Aguardando especialista', conversation: 'Em co
 export const CLOSED = ['completed', 'cancelled', 'released'];
 export const DEMO_USERS = [
   { id: 'cliente', username: 'user', name: 'user', role: 'client', initials: 'US' },
-  { id: 'tayane', name: 'Tayane', role: 'professional', sector: 'advocacia', specialty: 'Advogado geral', services: ['Advocacia geral'], initials: 'TA' },
-  { id: 'miguel', name: 'Miguel', role: 'professional', sector: 'advocacia', specialty: 'Advogado criminal', services: ['Direito criminal'], initials: 'MI' },
+  { id: 'tayane', name: 'Tayane', role: 'professional', sector: 'advocacia', specialty: 'Direito criminal', services: ['Direito criminal'], initials: 'TA' },
+  { id: 'miguel', name: 'Miguel', role: 'professional', sector: 'advocacia', specialty: 'Advogado geral', services: ['Advocacia geral'], initials: 'MI' },
   { id: 'feuzer', name: 'Feuzer', role: 'professional', sector: 'advocacia', specialty: 'Especialista em advocacia geral', services: ['Advocacia geral'], initials: 'FE' },
   { id: 'marcos', name: 'Marcos', role: 'professional', sector: 'engenharia', specialty: 'Engenheiro civil', services: SECTORS.engenharia.services, initials: 'MA' },
   { id: 'maria', name: 'Maria', role: 'professional', sector: 'engenharia', specialty: 'Engenheira civil', services: SECTORS.engenharia.services, initials: 'MR' },
@@ -17,6 +17,10 @@ export const DEMO_USERS = [
   { id: 'kleber', name: 'Kleber', role: 'professional', sector: 'ti', specialty: 'Engenharia de dados e suporte', services: ['Engenharia de dados', 'Suporte técnico'], initials: 'KL' }
 ].map(u => ({ ...u, username: u.username || u.id, email: `${u.username || u.id}@teste.com`, active: true, available: true, regions: ['PE', 'Belem'], modalities: u.sector === 'engenharia' ? ['Presencial'] : ['Remoto', 'Presencial'], bio: u.sector ? 'Perfil demonstrativo da equipe MVP Soluções. Especialidades e qualificações serão validadas antes da operação real.' : '' }));
 export const DEMO_PASSWORD = '123';
+const legacyLegalProfiles = {
+  tayane: { specialty: 'Advogado geral', service: 'Advocacia geral' },
+  miguel: { specialty: 'Advogado criminal', service: 'Direito criminal' }
+};
 export function normalizeState(state) {
   state.version = 2;
   for (const key of ['users', 'tickets', 'notifications', 'support', 'audit']) state[key] ||= [];
@@ -26,6 +30,10 @@ export function normalizeState(state) {
     if (!user) state.users.push(structuredClone(seed));
     else {
       user.username = seed.username;
+      const previous = legacyLegalProfiles[user.id];
+      if (previous && user.specialty === previous.specialty && user.services?.length === 1 && user.services[0] === previous.service) {
+        user.specialty = seed.specialty; user.services = [...seed.services];
+      }
       if (!user.email || [`${seed.id}@example.test`, `${seed.username}@example.test`].includes(user.email.toLowerCase())) user.email = seed.email;
       if (user.id === 'cliente' && user.name === 'Ana Oliveira') { user.name = seed.name; user.initials = seed.initials; user.email = seed.email; }
     }

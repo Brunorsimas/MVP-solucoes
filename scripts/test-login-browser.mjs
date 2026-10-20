@@ -65,6 +65,11 @@ try {
     console.log('PASS Browser: ' + account.username + ' e ' + account.email + ' / 123; perfil e sessão verificados.');
   }
   const client = tabs.cliente, professional = tabs.bruno;
+  await client.nav('/especialistas'); await client.wait('document.querySelectorAll(".expert-card").length === 8');
+  const legalCards = await client.evaluate('[...document.querySelectorAll(".expert-card")].map(card => ({name: card.querySelector("h3").textContent, specialty: card.querySelector(".specialty").textContent}))');
+  assert.equal(legalCards.find(p => p.name === 'Tayane').specialty, 'Direito criminal');
+  assert.equal(legalCards.find(p => p.name === 'Miguel').specialty, 'Advogado geral');
+  console.log('PASS Browser: cards de Tayane e Miguel com especialidades corrigidas.');
   await client.nav('/novo?setor=ti');
   await client.fill('#request-form', { service: 'Suporte técnico', region: 'PE', city: 'Recife' }); await client.submit('#request-form');
   await client.wait('!!document.querySelector("#description")');

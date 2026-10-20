@@ -35,7 +35,7 @@ export async function context(database = ':memory:', { auxiliary = true } = {}) 
   const clientId = (await client.state()).user.id, legalId = (await legal.state()).user.id;
   // No professional provisioning endpoint exists. Promote ONLY this synthetic fixture locally.
   app.transact(s => Object.assign(s.users.find(u => u.id === legalId), { role: 'professional', sector: 'advocacia', specialty: 'Advocacia geral — teste fictício', services: ['Advocacia geral'], regions: ['PE', 'Belem'], modalities: ['Remoto', 'Presencial'], bio: 'Perfil fictício exclusivo da auditoria local.' }));
-  if (auxiliary) for (const [a, login] of [[admin, 'bruno'], [outsider, 'user'], [alternate, 'tayane']]) assert.equal((await a('/auth/login', { login, password: '123' })).status, 200);
+  if (auxiliary) for (const [a, login] of [[admin, 'bruno'], [outsider, 'user'], [alternate, 'miguel']]) assert.equal((await a('/auth/login', { login, password: '123' })).status, 200);
   const ok = async promise => { const r = await promise; assert.equal(r.status, 200, JSON.stringify(r)); return r.body; };
   const ticket = async (title = 'Consulta jurídica fictícia', extra = {}) => (await ok(client.action('createTicket', { sector: 'advocacia', service: 'Advocacia geral', region: 'PE', city: 'Recife', title, description: 'Descrição inteiramente fictícia para auditoria do atendimento jurídico.', agreed: true, ...extra }))).result.ticketId;
   const get = async id => (await client.state()).tickets.find(t => t.id === id);

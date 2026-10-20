@@ -17,6 +17,8 @@ try {
   const publicState = await call('/state');
   assert.equal(publicState.status, 200); assert.equal(publicState.body.user, null);
   assert.equal(publicState.body.config.testLoginEnabled, true);
+  assert.equal(publicState.body.professionals.find(p => p.id === 'tayane').specialty, 'Direito criminal');
+  assert.equal(publicState.body.professionals.find(p => p.id === 'miguel').specialty, 'Advogado geral');
   assert.ok(publicState.body.professionals.every(u => !u.email && !u.phone));
   for (const seed of DEMO_USERS) {
     for (const login of [seed.username, seed.email]) {
@@ -52,6 +54,8 @@ try {
   try {
     const state = (await pool.query('SELECT content FROM mvp_state WHERE id=1')).rows[0].content;
     for (const seed of DEMO_USERS) assert.equal(state.users.find(u => u.id === seed.id).email, seed.email);
+    assert.deepEqual(state.users.find(u => u.id === 'tayane').services, ['Direito criminal']);
+    assert.deepEqual(state.users.find(u => u.id === 'miguel').services, ['Advocacia geral']);
     console.log(`PASS ${branch}: nove e-mails persistidos no PostgreSQL; autenticação e permissões validadas.`);
   } finally { await pool.end(); }
   mkdirSync('artifacts', { recursive: true });

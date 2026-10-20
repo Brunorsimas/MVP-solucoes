@@ -27,7 +27,7 @@ try{
   await a.send('Page.navigate',{url:origin});await a.wait('!!document.querySelector(".hero")');await a.login('user');
   const id=await a.evaluate(`(async()=>{
     const request = ${mode === 'static' ? "(await import('./demo.js')).staticRequest" : "async (path,data) => { const s=await fetch('/api/state').then(r=>r.json()); return fetch('/api'+path,{method:data?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf},body:data?JSON.stringify(data):undefined}).then(r=>r.json()); }"};
-    const result=await request('/action',{action:'createTicket',payload:{sector:'advocacia',service:'Advocacia geral',region:'PE',city:'Recife',title:'Negociação livre fictícia',description:'Teste fictício de negociação por documento e formulário.',agreed:true}});
+    const result=await request('/action',{action:'createTicket',payload:{sector:'advocacia',service:'Direito criminal',region:'PE',city:'Recife',title:'Negociação livre fictícia',description:'Teste fictício de negociação por documento e formulário.',agreed:true}});
     return result.result.ticketId;
   })()`);
   await a.login('tayane');await a.nav('/chamado/'+id);await a.click('[data-action=acceptTicket]');await a.wait('!!document.querySelector("#message-form")');

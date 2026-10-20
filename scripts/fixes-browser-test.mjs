@@ -27,7 +27,7 @@ try{
   // A legacy unscoped draft must never be loaded by the new app.
   await a.evaluate('localStorage.setItem("mvp-draft",JSON.stringify({description:"LEGACY-SECRET"}))');await a.send('Page.reload');await a.wait('!!document.querySelector(".hero")');
   await a.login('user');await a.nav('/novo?setor=advocacia');await a.wait('!!document.querySelector("#request-form")');
-  await a.fill('#request-form',{service:'Advocacia geral',region:'PE',city:'Recife'});await a.submit('#request-form');await a.wait('!!document.querySelector("#description")');
+  await a.fill('#request-form',{service:'Direito criminal',region:'PE',city:'Recife'});await a.submit('#request-form');await a.wait('!!document.querySelector("#description")');
   assert.equal(await a.evaluate('document.querySelector("#description").value'),'');
   await a.fill('#request-form',{title:'Rascunho privado',description:'TAB-PRIVATE-SECRET: não pode aparecer em outra conta.'});
   await a.send('Page.reload');await a.wait('!!document.querySelector("#request-form")');await a.submit('#request-form');await a.wait('!!document.querySelector("#description")');
@@ -36,14 +36,14 @@ try{
   await a.wait('!document.querySelector("#description")');
   assert.equal(await a.evaluate('sessionStorage.getItem("mvp-private-draft-v2")'),null);
   assert.equal(await a.evaluate('document.querySelector("main").textContent.includes("TAB-PRIVATE-SECRET")'),false);
-  await a.nav('/novo?setor=advocacia');await a.fill('#request-form',{service:'Advocacia geral',region:'PE',city:'Recife'});await a.submit('#request-form');await a.wait('!!document.querySelector("#description")');assert.equal(await a.evaluate('document.querySelector("#description").value'),'');
+  await a.nav('/novo?setor=advocacia');await a.fill('#request-form',{service:'Direito criminal',region:'PE',city:'Recife'});await a.submit('#request-form');await a.wait('!!document.querySelector("#description")');assert.equal(await a.evaluate('document.querySelector("#description").value'),'');
   await a.fill('#request-form',{title:'Outro rascunho',description:'Logout deve limpar inclusive a aba ativa de outra sessão.'});
   await b.click('#profile-menu-trigger');await b.click('#profile-menu-dropdown [data-action=logout]');await a.wait('sessionStorage.getItem("mvp-private-draft-v2")===null');
   checks.push(mode+': legacy draft discarded; same-session reload preserves own draft; account change and logout in another tab clear private drafts');
  }
  const a=await tab();const origin=`http://127.0.0.1:${app.server.address().port}`;
  let id,supportId,proposalId;
- app.transact(s=>{const run=(u,a,p)=>act(s,s.users.find(x=>x.id===u),a,p,{now:clock,hour:10});id=run('cliente','createTicket',{sector:'advocacia',service:'Advocacia geral',region:'PE',city:'Recife',title:'Suporte e proposta de teste',description:'Solicitação fictícia para validar o painel administrativo.',agreed:true}).ticketId;run('tayane','accept',{ticketId:id});run('tayane','proposal',{ticketId:id,amount:150,scope:'Serviço fictício para testar',deadline:'2 dias',terms:'Na entrega',validityDays:1});proposalId=s.tickets[0].proposals[0].id;});
+ app.transact(s=>{const run=(u,a,p)=>act(s,s.users.find(x=>x.id===u),a,p,{now:clock,hour:10});id=run('cliente','createTicket',{sector:'advocacia',service:'Direito criminal',region:'PE',city:'Recife',title:'Suporte e proposta de teste',description:'Solicitação fictícia para validar o painel administrativo.',agreed:true}).ticketId;run('tayane','accept',{ticketId:id});run('tayane','proposal',{ticketId:id,amount:150,scope:'Serviço fictício para testar',deadline:'2 dias',terms:'Na entrega',validityDays:1});proposalId=s.tickets[0].proposals[0].id;});
  clock='2026-10-20T13:00:00.000Z';await a.send('Page.navigate',{url:origin});await a.wait('!!document.querySelector(".hero")');await a.login('user');await a.nav('/chamado/'+id);await a.wait('!!document.querySelector(".proposal-card")');
  assert.match(await a.evaluate('document.querySelector(".proposal-card").textContent'),/Vencida/);assert.equal(await a.evaluate('!!document.querySelector("[data-action=approveProposal]")'),false);
  app.transact(s=>{const run=(u,a,p)=>act(s,s.users.find(x=>x.id===u),a,p,{now:clock,hour:10});run('tayane','proposal',{ticketId:id,amount:150,scope:'Atualização fictícia para testar',deadline:'2 dias',terms:'Na entrega',validityDays:1});run('cliente','proposalDecision',{ticketId:id,proposalId:s.tickets[0].proposals.at(-1).id,decision:'accepted'});run('tayane','appointment',{ticketId:id,date:'2026-10-22T17:00:00Z',location:'Reunião fictícia'});run('cliente','support',{ticketId:id,message:'Encerrar este contrato de teste.'});supportId=s.support[0].id;});

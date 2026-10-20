@@ -27,7 +27,7 @@ try {
   const request=(path,data)=>a.evaluate(`(async()=>{const request=${requestCode};return request(${JSON.stringify(path)},${JSON.stringify(data)});})()`);
   await a.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
   await a.send('Page.navigate',{url:origin}); await a.wait('!!document.querySelector(".hero")');await a.login('user');
-  const ids=[];for(let i=0;i<4;i++) ids.push((await request('/action',{action:'createTicket',payload:{sector:'advocacia',service:'Advocacia geral',region:'PE',city:'Recife',title:'Teste de vaga '+i,description:'Solicitação fictícia para teste de capacidade e perfil.',agreed:true}})).result.ticketId);
+  const ids=[];for(let i=0;i<4;i++) ids.push((await request('/action',{action:'createTicket',payload:{sector:'advocacia',service:'Direito criminal',region:'PE',city:'Recife',title:'Teste de vaga '+i,description:'Solicitação fictícia para teste de capacidade e perfil.',agreed:true}})).result.ticketId);
   await a.login('tayane');
   for(const ticketId of ids.slice(0,2)) await request('/action',{action:'accept',payload:{ticketId}});
   await a.send('Page.reload');await a.wait('!!document.querySelector(".user-trigger")');
