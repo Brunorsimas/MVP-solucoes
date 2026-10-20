@@ -30,6 +30,18 @@ npm run build:static
 
 Esse comando gera explicitamente a demonstração sem backend. Após utilizá-lo, execute `npm run build` para voltar à prévia Neon.
 
+## Atualizações do chat
+
+A API oferece `GET /api/events`, uma conexão SSE autenticada pelo mesmo token usado nas outras rotas. Uma alteração confirmada em `mvp_state.content` dispara `NOTIFY mvp_state_updates`; cada processo da Function mantém uma conexão PostgreSQL direta em `LISTEN` compartilhada pelos seus navegadores conectados. A notificação contém apenas um aviso vazio. O navegador busca os dados pela rota `/api/state`, que continua filtrando o conteúdo pelo participante autorizado.
+
+`neon.ts` encaminha a variável privada `DATABASE_URL_UNPOOLED` para `LIVE_DATABASE_URL` no ambiente da Function. Não use uma conexão pooled para `LISTEN`. Essa credencial nunca entra no bundle do navegador. A migração `npm run db:init` cria o trigger; execute-a antes de publicar a API, sempre após validar em uma branch isolada. Sem a variável do listener, o backend anuncia que SSE está indisponível e o frontend mantém sincronização periódica.
+
+O cliente reconecta automaticamente após falhas, ressincroniza ao recuperar a conexão e mantém uma verificação a cada 30 segundos enquanto o canal está conectado. Durante desconexões ou com backends antigos, verifica em aproximadamente três segundos. Digitar, abrir o menu ou manter um anexo selecionado não bloqueia a atualização. O modo estático continua limitado ao armazenamento do próprio navegador.
+
+Cada stream tem duração máxima de cinco minutos para renovar a autenticação; a sessão é verificada também a cada heartbeat de 15 segundos. Há limite de conexões por usuário e de tentativas de abertura. Logout interrompe o stream do navegador. A conexão direta é encerrada quando o processo fica sem assinantes.
+
+O relatório [CHAT-TEMPO-REAL-2026-10-20.md](CHAT-TEMPO-REAL-2026-10-20.md) registra os testes e o procedimento de reprodução.
+
 ## Cadastros e especialistas
 
 Os usuários existentes entram sem informar e-mail pelo login `user`, `tayane`, `miguel`, `feuzer`, `marcos`, `maria`, `bruno`, `stefanny` ou `kleber` e senha `123`, quando o modo temporário está habilitado na API. Tayane atua em **Direito criminal** e Miguel como **Advogado geral**, com encaminhamento por serviço correspondente. A migração atualiza os perfis demonstrativos antigos sem transferir ou apagar atendimentos já assumidos.

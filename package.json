@@ -10,6 +10,7 @@
     "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/start.mjs",
     "dev": "node --watch server.mjs",
     "test": "node --test tests/*.test.mjs",
+    "test:chat": "node scripts/chat-live-browser.mjs",
     "build": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/build.mjs",
     "build:shared": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/build.mjs --shared",
     "build:static": "node scripts/build.mjs --static",
@@ -19,7 +20,7 @@
     "db:specialist": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/database.mjs specialist",
     "db:neon-specialist": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/neon-specialist.mjs",
     "test:neon": "node --env-file-if-exists=.env.neon-test scripts/neon-e2e.mjs",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/domain.js && node --check public/demo.js && node --check public/drafts.js && node --check lib/postgres-store.mjs && node --check lib/shared-api.mjs && node --check netlify/functions/api.mjs && node --check netlify/functions/retention.mjs && node --check public/neon-client.js && node --check lib/neon-api.mjs && node --check functions/mvpapi.mjs && node --check scripts/start.mjs && node --check scripts/neon-specialist.mjs && node --check scripts/neon-e2e.mjs"
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/domain.js && node --check public/demo.js && node --check public/drafts.js && node --check public/live-updates.js && node --check public/live-view.js && node --check lib/live-events.mjs && node --check lib/node-response.mjs && node --check lib/postgres-store.mjs && node --check lib/shared-api.mjs && node --check netlify/functions/api.mjs && node --check netlify/functions/retention.mjs && node --check public/neon-client.js && node --check lib/neon-api.mjs && node --check functions/mvpapi.mjs && node --check scripts/start.mjs && node --check scripts/neon-specialist.mjs && node --check scripts/neon-e2e.mjs && node --check scripts/chat-live-browser.mjs"
   },
   "dependencies": {
     "@neon/config": "^1.9.2",

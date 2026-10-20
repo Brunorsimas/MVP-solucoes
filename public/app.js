@@ -2,6 +2,8 @@ import { SECTORS, STATUS, CLOSED, DEMO_USERS, proposalExpired, proposalExpiresAt
 import { readDraft, writeDraft, discardDraft } from './drafts.js';
 import { staticRequest, staticFile } from './demo.js';
 import { neonEnabled, neonRequest, neonFetch } from './neon-client.js';
+import { createLiveUpdates } from './live-updates.js';
+import { updateLiveView } from './live-view.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -67,11 +69,20 @@ const sharedMode = () => state?.config?.mode === 'shared' || document.documentEl
 let draftScope = null;
 try { localStorage.removeItem('mvp-draft'); } catch {}
 let currentRoute = location.hash.slice(1) || (location.pathname.includes('/servicos/') ? '/servicos/' + location.pathname.split('/servicos/')[1].replace(/\/$/, '') : '/');
+let readRevision = 0, authEpoch = 0, backgroundPending = false, backgroundRunning = false, backgroundTimer, lastSync = 0;
+const liveUpdates = createLiveUpdates({
+  fetchEvents: signal => neonEnabled ? neonFetch('/events', undefined, { signal }) : fetch(new URL('api/events', document.baseURI), { signal, credentials: 'same-origin' }),
+  onUpdate: scheduleBackgroundRefresh,
+  onUnauthorized: scheduleBackgroundRefresh,
+  onStatus: status => { document.documentElement.dataset.liveStatus = status; }
+});
+function syncLiveUpdates() { liveUpdates.start(!staticMode && state?.user && state.config.live === 'sse' ? `${state.user.id}:${csrf}` : null); }
 async function request(path, payload) {
+  if (payload !== undefined && ['/auth/login', '/auth/logout', '/auth/register'].includes(path)) { authEpoch++; readRevision++; liveUpdates.stop(); }
   if (staticMode) return staticRequest(path, payload);
   if (neonEnabled) return neonRequest(path, payload);
   const response = await fetch(new URL(`api${path}`, document.baseURI), { method: payload === undefined ? 'GET' : 'POST', headers: payload === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' }, body: payload === undefined ? undefined : JSON.stringify(payload), credentials: 'same-origin' });
-  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Falha na conexão.'); if (data.csrf) csrf = data.csrf; return data;
+  const data = await response.json(); if (!response.ok) { const error = new Error(data.error || 'Falha na conexão.'); error.status = response.status; throw error; } if (data.csrf) csrf = data.csrf; return data;
 }
 function clearDraft() {
   draft = {}; formStep = 1; initializedDraftRoute = null;
@@ -85,9 +96,38 @@ function acceptState(updated) {
     draftScope = scope;
   }
   state = updated; csrf = updated.csrf || '';
+  lastSync = Date.now(); syncLiveUpdates();
 }
 function announceAccountChange() { try { localStorage.setItem('mvp-auth-revision', crypto.randomUUID()); } catch {} }
-async function refresh(renderPage = true) { acceptState(await request('/state')); if (renderPage) render(); }
+async function refresh(renderPage = true) {
+  const revision = ++readRevision, epoch = authEpoch, updated = await request('/state');
+  if (revision !== readRevision || epoch !== authEpoch) return;
+  acceptState(updated); if (renderPage) render();
+}
+function scheduleBackgroundRefresh() {
+  backgroundPending = true;
+  if (!backgroundRunning) { clearTimeout(backgroundTimer); backgroundTimer = setTimeout(updateFromServer, 0); }
+}
+async function updateFromServer() {
+  if (backgroundRunning || !backgroundPending || !state?.user) return;
+  if (busy) { backgroundTimer = setTimeout(updateFromServer, 50); return; }
+  backgroundPending = false; backgroundRunning = true;
+  const scope = `${state.user.id}:${csrf}`, epoch = authEpoch, revision = ++readRevision;
+  try {
+    const updated = await request('/state');
+    if (revision !== readRevision || epoch !== authEpoch || scope !== `${state?.user?.id}:${csrf}`) return;
+    const fields = view => [view.tickets, view.notifications, view.user, view.admin, view.support, view.config.open];
+    const changed = JSON.stringify(fields(updated)) !== JSON.stringify(fields(state)) || state.tickets.some(t => (t.proposals || []).some(p => p.status === 'pending' && proposalExpired(p, updated.config.serverTime) !== proposalExpired(p, state.config.serverTime)));
+    acceptState(updated); if (changed) render({ live: true });
+  } catch (error) {
+    if (error.status === 401 && epoch === authEpoch) {
+      acceptState({ ...state, user: null, csrf: undefined, tickets: [], notifications: [], support: [], admin: null }); render();
+    }
+  } finally {
+    backgroundRunning = false;
+    if (backgroundPending && state?.user) backgroundTimer = setTimeout(updateFromServer, 0);
+  }
+}
 function toast(message, error = false) { const el = $('#toast'); el.textContent = message; el.className = `toast visible${error ? ' error' : ''}`; clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('visible'), 5000); }
 function go(path) { if (location.hash.slice(1) === path) { currentRoute = path; render(); } else location.hash = path; }
 function professional(id) { return state.professionals.find(u => u.id === id) || { name: 'Especialista', initials: 'ES' }; }
@@ -260,7 +300,7 @@ function infoPage(type) {
   return `${pageHead('TRANSPARÊNCIA', privacy ? 'Privacidade, com clareza.' : 'Termos de uso do MVP.', 'Documento operacional de demonstração. Revisão necessária antes do uso com dados reais.')}<article class="card prose mb">${privacy ? `<h2>1. Use somente dados de teste</h2><p>O MVP está em desenvolvimento. Os dados de conta, solicitação, mensagens, propostas, agenda e anexos são utilizados para testar o funcionamento do atendimento.</p><h2>2. Onde os dados ficam</h2><p>${staticMode ? 'Nesta versão estática, os dados ficam no armazenamento deste navegador. Eles não são enviados a um servidor e não são compartilhados entre dispositivos. Quem tem acesso ao navegador pode acessar os dados da demonstração.' : sharedMode() ? 'Os cadastros e atendimentos ficam em um banco PostgreSQL compartilhado no servidor. O acesso depende da sua conta e das permissões do atendimento. Rascunhos ficam nesta aba. No ambiente Neon, autenticação e recuperação utilizam o serviço de e-mail do provedor; os alertas operacionais e o WhatsApp continuam sem integração.' : 'Nesta versão local, os dados ficam em um banco SQLite no computador que executa o servidor. Sessões usam cookies de acesso. Rascunhos ficam no navegador. O ambiente não possui envio externo de e-mail ou WhatsApp.'}</p><h2>3. Conversas e anexos</h2><p>O cliente e o profissional participante têm acesso à sua conversa. O painel administrativo recebe dados operacionais, sem leitura geral de mensagens. Transferir o chamado não compartilha automaticamente a conversa anterior.</p><h2>4. Retenção por 30 dias</h2><p>Conversas e anexos são excluídos após 30 dias do encerramento da respectiva conversa. O servidor verifica a retenção nas requisições e em rotinas periódicas; na hospedagem compartilhada, a rotina é executada a cada hora. Na demonstração estática, a exclusão ocorre na próxima abertura. Uma conversa transferida tem seu próprio prazo de retenção.</p><p>Propostas, aprovações, dados de conta e registros operacionais ficam separados do conteúdo do chat. Seus prazos definitivos precisam ser aprovados antes da operação real. Cópias baixadas pelos participantes ficam sob responsabilidade de quem as recebeu.</p><h2>5. Acesso excepcional</h2><p>O MVP não disponibiliza um botão administrativo para ler chats alheios. Pedidos de suporte registram apenas o que o usuário escolhe informar. A implementação de acesso excepcional exigirá finalidade, autorização, prazo e auditoria.</p><h2>6. Solicitações sobre dados</h2><p>Use a Central de ajuda, categoria “Privacidade e dados”, para pedir correção, exportação ou encerramento da conta. O pedido fica registrado para tratamento pelo administrador.</p><h2>7. Cookies e serviços externos</h2><p>Não há publicidade nem rastreamento de terceiros. O site utiliza armazenamento necessário ao acesso e aos rascunhos. Rascunhos ficam nesta aba durante a sessão e são removidos ao sair ou trocar de conta. Notificações externas estão simuladas.</p>` : `<h2>1. Natureza do projeto</h2><p>O MVP Soluções é uma plataforma independente em demonstração. Os perfis apresentados servem aos testes e não constituem oferta de atendimento real neste ambiente.</p><h2>2. Solicitação e contratação</h2><p>A abertura de chamado e seu aceite pelo profissional não representam, por si, contratação de serviço pago. A proposta deve informar escopo, valor, prazo e condições. A aprovação fica vinculada à versão apresentada.</p><h2>3. Horário e capacidade</h2><p>Novos chamados podem ser abertos das 8h às 19h, no horário de Brasília. Cada especialista pode manter dois atendimentos simultâneos. Ao completar nome, e-mail de contato, telefone, estado, cidade e apresentação, o limite passa a três. Se o perfil ficar incompleto, o limite volta a dois, sem interromper chamados já assumidos. Preenchimento não representa verificação de identidade ou qualificação. Não há garantia de aceite imediato ou prazo geral de conclusão.</p><h2>4. Pagamento</h2><p>O pagamento é combinado e realizado diretamente com o profissional, sem comissão da plataforma. O anexo de comprovante não constitui confirmação bancária. O profissional deve conferir o recebimento.</p><h2>5. Cancelamento e novo encaminhamento</h2><p>Até a contratação ser aprovada, o cliente pode cancelar diretamente, inclusive após conversa ou agendamento. Depois da contratação, o encerramento é solicitado pelo suporte. Antes da contratação, é possível devolver o chamado à fila. Serviços já contratados exigem tratamento das etapas e valores combinados.</p><h2>6. Conduta</h2><p>Não envie conteúdo ilegal, ofensivo, senhas ou dados de terceiros sem necessidade. Utilize dados fictícios durante os testes. O suporte registra denúncias para avaliação administrativa.</p><h2>7. Registros e privacidade</h2><p>Conversas e anexos ficam disponíveis por 30 dias após o encerramento, conforme o aviso de privacidade. O usuário pode baixar sua conversa antes do término do prazo.</p><h2>8. Limites desta versão</h2><p>Os canais externos de notificação, verificação de e-mail, confirmação de qualificações e demais requisitos de operação real ainda precisam ser configurados. Este texto será revisado com os responsáveis antes do lançamento público.</p>`}<div class="divider"></div>${link('Falar com a administração', '/ajuda', 'help', 'btn-secondary')}</article>`;
 }
 function notFound() { return `<div class="mb">${empty('Não encontramos esta página.', 'O endereço pode ter mudado ou você não tem acesso a este atendimento.', link('Voltar ao início', '/', 'home'))}</div>`; }
-function render() {
+function render({ live = false } = {}) {
   if (!state) return;
   const route = currentRoute.split('?')[0]; let content;
   if (route === '/') content = homePage();
@@ -280,9 +320,9 @@ function render() {
   else if (route === '/ajuda') content = helpPage();
   else if (['/sobre', '/privacidade', '/termos'].includes(route)) content = infoPage(route.slice(1));
   else content = notFound();
-  app.innerHTML = shell(content);
+  if (live) updateLiveView(app, shell(content)); else app.innerHTML = shell(content);
   document.title = `${$('#main h1')?.textContent || 'Pessoas certas. Soluções de verdade.'} | MVP Soluções`;
-  const log = $('#messages'); if (log) log.scrollTop = log.scrollHeight;
+  const log = $('#messages'); if (log && !live) log.scrollTop = log.scrollHeight;
 }
 
 function confirmAction(title, description, action, payload, label = 'Confirmar') {
@@ -362,7 +402,7 @@ document.addEventListener('click', async event => {
   if (!button || button.disabled || busy) return;
   event.preventDefault();
   const originalDisabled = button.disabled; button.disabled = true; busy = true;
-  try { await handleAction(button); } catch (error) { toast(error.message, true); } finally { busy = false; if (button.isConnected) button.disabled = originalDisabled; }
+  try { await handleAction(button); } catch (error) { toast(error.message, true); } finally { busy = false; if (button.isConnected) button.disabled = originalDisabled; syncLiveUpdates(); }
 });
 
 document.addEventListener('keydown', event => {
@@ -439,20 +479,23 @@ document.addEventListener('submit', async event => {
     else if (form.id === 'verification-code-form') { await request('/auth/verify-email', data); closeModal(); toast('E-mail confirmado.'); }
     else if (form.id === 'reset-form') { await request('/auth/reset', data); closeModal(); if (neonEnabled) history.replaceState(null, '', location.pathname + '#/entrar'); toast('Senha atualizada. Entre novamente.'); }
   } catch (error) { const errorBox = form.querySelector('#form-error, #modal-error'); if (errorBox) { errorBox.className = 'field-error'; errorBox.textContent = error.message; } else toast(error.message, true); }
-  finally { busy = false; if (submit?.isConnected) submit.disabled = false; }
+  finally { busy = false; if (submit?.isConnected) submit.disabled = false; syncLiveUpdates(); }
 });
 window.addEventListener('hashchange', () => { setAccountMenu(false); currentRoute = location.hash.slice(1) || '/'; mobileOpen = false; selectedThread = null; closeModal(); render(); window.scrollTo({ top: 0, behavior: 'instant' }); });
 window.addEventListener('storage', event => {
   if (event.key === 'mvp-auth-revision') { clearDraft(); closeModal(); refresh().catch(() => {}); return; }
-  if (staticMode && !busy && !accountMenuOpen && !modal.open && !document.activeElement?.matches('input,textarea,select')) refresh().catch(() => {});
+  if (staticMode) scheduleBackgroundRefresh();
 });
-setInterval(async () => {
-  if (!state?.user || busy || accountMenuOpen || modal.open || document.hidden || document.activeElement?.matches('input,textarea,select')) return;
-  try {
-    const updated = await request('/state');
-    if (JSON.stringify([updated.tickets, updated.notifications, updated.user, updated.admin, updated.support]) !== JSON.stringify([state.tickets, state.notifications, state.user, state.admin, state.support]) || state.tickets.some(t => (t.proposals || []).some(p => p.status === 'pending' && proposalExpired(p, updated.config.serverTime) !== proposalExpired(p, state.config.serverTime)))) { const scroll = window.scrollY; acceptState(updated); render(); window.scrollTo(0, scroll); }
-  } catch { /* Preserve the current view during transient failures. */ }
-}, 5000);
+document.addEventListener('input', event => { if (event.target.form) event.target.form.dataset.edited = 'true'; });
+window.addEventListener('online', scheduleBackgroundRefresh);
+window.addEventListener('focus', scheduleBackgroundRefresh);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleBackgroundRefresh(); });
+// Reconcile after missed notifications and support older backends while deploying.
+// A focused composer never blocks updates, including during reconnects.
+setInterval(() => {
+  if (!state?.user || document.hidden) return;
+  if (Date.now() - lastSync >= (liveUpdates.status === 'connected' ? 30000 : 3000)) scheduleBackgroundRefresh();
+}, 1000);
 try { await refresh(); } catch (error) { app.innerHTML = `<main class="boot"><h1>Não foi possível conectar.</h1><p>${esc(error.message)}</p><p>${sharedMode() ? 'Tente novamente em alguns instantes. Se o problema continuar, avise o administrador.' : 'Inicie o servidor com <code>npm start</code> ou utilize a versão estática gerada por <code>npm run build</code>.'}</p><button class="btn btn-primary" id="retry">Tentar novamente</button></main>`; $('#retry').addEventListener('click', () => location.reload()); }
 
 if (neonEnabled) { const resetToken = new URLSearchParams(location.search).get('token'); if (resetToken) showModal('Definir nova senha', `<form id="reset-form"><div id="modal-error"></div><input type="hidden" name="token" value="${esc(resetToken)}">${field('Nova senha', 'password', { type: 'password', attrs: 'minlength="10" maxlength="128" autocomplete="new-password"' })}<button class="btn btn-primary full" type="submit">Salvar nova senha</button></form>`); }

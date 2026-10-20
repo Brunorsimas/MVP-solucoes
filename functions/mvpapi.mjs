@@ -3,13 +3,15 @@ import { attachDatabasePool } from '@neon/functions';
 import { parseTriggerDelivery } from '@neon/functions/triggers';
 import { createPostgresStore } from '../lib/postgres-store.mjs';
 import { createNeonHandler, neonVerifier } from '../lib/neon-api.mjs';
+import { createLiveEvents, postgresNotifications } from '../lib/live-events.mjs';
 
 const connection = new URL(process.env.DATABASE_URL);
 connection.searchParams.set('sslmode', 'verify-full');
 const pool = new Pool({ connectionString: connection.toString(), max: 5, connectionTimeoutMillis: 15000, statement_timeout: 15000, idle_in_transaction_session_timeout: 15000 });
 attachDatabasePool(pool);
 const store = createPostgresStore(pool, { migrate: false });
-const handle = createNeonHandler({ store, authUrl: process.env.NEON_AUTH_BASE_URL, verify: neonVerifier({ authUrl: process.env.NEON_AUTH_BASE_URL, jwksUrl: process.env.NEON_AUTH_JWKS_URL }), origins: String(process.env.APP_ORIGINS || '').split(',').filter(Boolean), simulatedHour: process.env.PILOT_TIME === '10' ? 10 : null, testLoginEnabled: process.env.TEST_LOGIN_ENABLED === '1' });
+const live = process.env.LIVE_DATABASE_URL ? createLiveEvents(postgresNotifications(process.env.LIVE_DATABASE_URL)) : null;
+const handle = createNeonHandler({ store, live, authUrl: process.env.NEON_AUTH_BASE_URL, verify: neonVerifier({ authUrl: process.env.NEON_AUTH_BASE_URL, jwksUrl: process.env.NEON_AUTH_JWKS_URL }), origins: String(process.env.APP_ORIGINS || '').split(',').filter(Boolean), simulatedHour: process.env.PILOT_TIME === '10' ? 10 : null, testLoginEnabled: process.env.TEST_LOGIN_ENABLED === '1' });
 
 export default {
   async fetch(request) {

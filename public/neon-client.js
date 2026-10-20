@@ -10,13 +10,13 @@ function setTestAccess(value) {
   testAccess = value;
   try { if (value === undefined) sessionStorage.removeItem(testSessionKey); else sessionStorage.setItem(testSessionKey, value); } catch {}
 }
-function apiFetch(path, payload, token) {
+function apiFetch(path, payload, token, { signal } = {}) {
   const url = new URL('api' + path, config.apiUrl.endsWith('/') ? config.apiUrl : config.apiUrl + '/');
-  return fetch(url, { method: payload === undefined ? 'GET' : 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: payload === undefined ? undefined : JSON.stringify(payload), credentials: 'omit' });
+  return fetch(url, { signal, method: payload === undefined ? 'GET' : 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: payload === undefined ? undefined : JSON.stringify(payload), credentials: 'omit' });
 }
 async function jsonResponse(response) {
   const data = await response.json();
-  if (!response.ok) throw Error(data.error || 'Falha na conexão.');
+  if (!response.ok) { const error = Error(data.error || 'Falha na conexão.'); error.status = response.status; throw error; }
   return data;
 }
 async function revokeTestSession() {
@@ -40,11 +40,11 @@ function checked(result) {
   if (result?.error) throw new Error(result.error.message || 'Não foi possível autenticar.');
   return result?.data;
 }
-export async function neonFetch(path, payload) {
+export async function neonFetch(path, payload, options = {}) {
   // An empty value records an explicit test sign-out. Do not unexpectedly
   // restore an older managed account hidden behind that demonstration session.
   if (testAccess !== undefined) {
-    const response = await apiFetch(path, payload, testAccess);
+    const response = await apiFetch(path, payload, testAccess, options);
     if (response.status === 401 && testAccess) {
       setTestAccess('');
       if (path === '/state' && payload === undefined) return apiFetch(path);
@@ -65,7 +65,7 @@ export async function neonFetch(path, payload) {
     } else token = tokenCache.token;
     if (!token) throw Error('Não foi possível verificar sua sessão. Entre novamente.');
   }
-  return apiFetch(path, payload, token);
+  return apiFetch(path, payload, token, options);
 }
 export async function neonRequest(path, payload) {
   const identifier = String(payload?.login || payload?.email || '').trim().toLocaleLowerCase('pt-BR');

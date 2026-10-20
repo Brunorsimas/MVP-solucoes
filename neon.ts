@@ -8,6 +8,8 @@ export default defineConfig({
       APP_ORIGINS: "https://stellar-tiramisu-56e571.netlify.app,http://localhost:4189,http://127.0.0.1:4189",
       // Temporary demonstration accounts. Set to "0" and redeploy to disable.
       TEST_LOGIN_ENABLED: "1",
+      // Server-only direct connection for LISTEN, never included in the browser.
+      ...(process.env.DATABASE_URL_UNPOOLED ? { LIVE_DATABASE_URL: process.env.DATABASE_URL_UNPOOLED } : {}),
       ...(process.env.PILOT_TIME ? { PILOT_TIME: process.env.PILOT_TIME } : {}),
     } },
   },

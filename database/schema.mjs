@@ -8,4 +8,14 @@ CREATE TABLE IF NOT EXISTS mvp_rate_limits (id TEXT PRIMARY KEY, count INTEGER N
 CREATE TABLE IF NOT EXISTS mvp_neon_identities (subject TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS mvp_test_sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS mvp_test_sessions_expiry ON mvp_test_sessions(expires);
+CREATE OR REPLACE FUNCTION mvp_notify_state_change() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_notify('mvp_state_updates', '');
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS mvp_state_changed ON mvp_state;
+CREATE TRIGGER mvp_state_changed AFTER UPDATE OF content ON mvp_state
+FOR EACH ROW WHEN (OLD.content IS DISTINCT FROM NEW.content)
+EXECUTE FUNCTION mvp_notify_state_change();
 `;

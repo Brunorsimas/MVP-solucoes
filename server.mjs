@@ -4,19 +4,22 @@ import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypt
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLiveEvents, memoryNotifications } from './lib/live-events.mjs';
+import { sendNodeResponse } from './lib/node-response.mjs';
 import { act, createState, normalizeState, demoUser, DEMO_PASSWORD, projectState, purgeExpired, fail, requireThat, uid, businessOpen } from './public/domain.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.webmanifest': 'application/manifest+json' };
 const tokenHash = value => createHash('sha256').update(value).digest('hex');
 export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = true, simulatedHour = 10, now = () => new Date().toISOString() } = {}) {
+  const updates = memoryNotifications(), live = createLiveEvents(updates);
   if (database !== ':memory:') mkdirSync(dirname(database), { recursive: true });
   const db = new DatabaseSync(database);
   db.exec('PRAGMA journal_mode=WAL; PRAGMA secure_delete=ON; CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL); CREATE TABLE IF NOT EXISTS accounts (user_id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS reset_tokens (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL);');
   if (!db.prepare('SELECT id FROM app_state WHERE id=1').get()) db.prepare('INSERT INTO app_state VALUES(1,?)').run(JSON.stringify(createState(now())));
   const load = () => normalizeState(JSON.parse(db.prepare('SELECT content FROM app_state WHERE id=1').get().content));
   const save = state => db.prepare('UPDATE app_state SET content=? WHERE id=1').run(JSON.stringify(state));
-  function transact(fn) { db.exec('BEGIN IMMEDIATE'); try { const state = load(); const result = fn(state); save(state); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; } }
+  function transact(fn) { db.exec('BEGIN IMMEDIATE'); try { const state = load(), before = JSON.stringify(state); const result = fn(state); save(state); db.exec('COMMIT'); if (before !== JSON.stringify(state)) updates.publish(); return result; } catch (error) { db.exec('ROLLBACK'); throw error; } }
   function cleanup() {
     const changed = transact(state => purgeExpired(state, now()));
     db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
@@ -66,7 +69,7 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
         }
         cleanup();
         const currentSession = session(req); const state = load(); const user = currentSession ? state.users.find(u => u.id === currentSession.user_id && u.active) : null;
-        if (req.method === 'GET' && url.pathname === '/api/state') return json(res, { ...projectState(state, user), csrf: currentSession?.csrf, config: { mode: demo ? 'local-demo' : 'local', simulatedHour: demo ? simulatedHour : null, open: businessOpen(new Date(now()), demo ? simulatedHour : null), serverTime: now(), externalNotifications: false, retentionDays: 30 } });
+        if (req.method === 'GET' && url.pathname === '/api/state') return json(res, { ...projectState(state, user), csrf: currentSession?.csrf, config: { mode: demo ? 'local-demo' : 'local', live: 'sse', simulatedHour: demo ? simulatedHour : null, open: businessOpen(new Date(now()), demo ? simulatedHour : null), serverTime: now(), externalNotifications: false, retentionDays: 30 } });
         if (req.method === 'POST' && url.pathname === '/api/auth/register') {
           throttle(req, 'register', 10); const data = await body(req); const email = String(data.email || '').trim().toLowerCase();
           requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length < 255, 'Informe um e-mail válido.');
@@ -101,6 +104,16 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
           const salt = randomBytes(16).toString('hex'); db.prepare('UPDATE accounts SET salt=?,hash=? WHERE user_id=?').run(salt, scryptSync(data.password, salt, 64).toString('hex'), row.user_id); db.prepare('DELETE FROM reset_tokens WHERE user_id=?').run(row.user_id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id); return json(res, { ok: true });
         }
         requireThat(user, 'Entre na sua conta para continuar.', 401);
+        if (req.method === 'GET' && url.pathname === '/api/events') {
+          requireThat(!req.headers.origin || req.headers.origin === url.origin, 'Origem não permitida.', 403);
+          throttle(req, 'live', 30);
+          const abort = new AbortController(); res.once('close', () => abort.abort());
+          const response = await live.open(new Request(url, { signal: abort.signal }), { userId: user.id, authorize: async () => {
+            const latest = session(req);
+            requireThat(latest?.user_id === user.id && load().users.some(u => u.id === user.id && u.active), 'Sua sessão expirou.', 401);
+          } });
+          sendNodeResponse(response, res); return;
+        }
         if (req.method !== 'GET') requireThat(req.headers['x-csrf-token'] === currentSession.csrf, 'Sua sessão mudou. Atualize a página.', 403);
         if (req.method === 'POST' && url.pathname === '/api/auth/logout') { db.prepare('DELETE FROM sessions WHERE token=?').run(currentSession.token); res.setHeader('Set-Cookie', 'mvp_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return json(res, { ok: true }); }
         if (req.method === 'POST' && url.pathname === '/api/action') {
@@ -136,7 +149,7 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
       if (!error.status) console.error(error);
     }
   });
-  return { server, db, load, transact, cleanup, close: () => { clearInterval(timer); server.closeAllConnections(); return new Promise(resolveClose => server.close(() => { db.close(); resolveClose(); })); } };
+  return { server, db, load, transact, cleanup, close: () => { clearInterval(timer); live.close(); server.closeAllConnections(); return new Promise(resolveClose => server.close(() => { db.close(); resolveClose(); })); } };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
