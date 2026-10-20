@@ -6,7 +6,7 @@ export const SECTORS = {
 export const STATUS = { waiting: 'Aguardando especialista', conversation: 'Em conversa', proposal: 'Proposta enviada', contracted: 'Contratado', progress: 'Em atendimento', delivery: 'Aguardando confirmação', completed: 'Concluído', cancelled: 'Cancelado', released: 'Encaminhado a outro especialista' };
 export const CLOSED = ['completed', 'cancelled', 'released'];
 export const DEMO_USERS = [
-  { id: 'cliente', username: 'user', name: 'user', role: 'client', email: 'user@example.test', initials: 'US' },
+  { id: 'cliente', username: 'user', name: 'user', role: 'client', initials: 'US' },
   { id: 'tayane', name: 'Tayane', role: 'professional', sector: 'advocacia', specialty: 'Advogado geral', services: ['Advocacia geral'], initials: 'TA' },
   { id: 'miguel', name: 'Miguel', role: 'professional', sector: 'advocacia', specialty: 'Advogado criminal', services: ['Direito criminal'], initials: 'MI' },
   { id: 'feuzer', name: 'Feuzer', role: 'professional', sector: 'advocacia', specialty: 'Especialista em advocacia geral', services: ['Advocacia geral'], initials: 'FE' },
@@ -15,7 +15,7 @@ export const DEMO_USERS = [
   { id: 'bruno', name: 'Bruno', role: 'professional', admin: true, sector: 'ti', specialty: 'Hardware e suporte técnico', services: ['Suporte técnico', 'Conserto de computador', 'Montagem de PC'], initials: 'BR' },
   { id: 'stefanny', name: 'Stefanny', role: 'professional', sector: 'ti', specialty: 'Desenvolvimento de software', services: ['Desenvolvimento de software'], initials: 'ST' },
   { id: 'kleber', name: 'Kleber', role: 'professional', sector: 'ti', specialty: 'Engenharia de dados e suporte', services: ['Engenharia de dados', 'Suporte técnico'], initials: 'KL' }
-].map(u => ({ ...u, username: u.username || u.id, email: u.email || `${u.id}@example.test`, active: true, available: true, regions: ['PE', 'Belem'], modalities: u.sector === 'engenharia' ? ['Presencial'] : ['Remoto', 'Presencial'], bio: u.sector ? 'Perfil demonstrativo da equipe MVP Soluções. Especialidades e qualificações serão validadas antes da operação real.' : '' }));
+].map(u => ({ ...u, username: u.username || u.id, email: `${u.username || u.id}@teste.com`, active: true, available: true, regions: ['PE', 'Belem'], modalities: u.sector === 'engenharia' ? ['Presencial'] : ['Remoto', 'Presencial'], bio: u.sector ? 'Perfil demonstrativo da equipe MVP Soluções. Especialidades e qualificações serão validadas antes da operação real.' : '' }));
 export const DEMO_PASSWORD = '123';
 export function normalizeState(state) {
   state.version = 2;
@@ -26,6 +26,7 @@ export function normalizeState(state) {
     if (!user) state.users.push(structuredClone(seed));
     else {
       user.username = seed.username;
+      if (!user.email || [`${seed.id}@example.test`, `${seed.username}@example.test`].includes(user.email.toLowerCase())) user.email = seed.email;
       if (user.id === 'cliente' && user.name === 'Ana Oliveira') { user.name = seed.name; user.initials = seed.initials; user.email = seed.email; }
     }
   }

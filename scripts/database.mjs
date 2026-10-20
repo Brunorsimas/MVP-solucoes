@@ -8,7 +8,11 @@ const command = process.argv[2];
 requireThat(['init', 'specialist'].includes(command), 'Use npm run db:init ou npm run db:specialist -- bruno.');
 const database = await connectPostgres(process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL);
 try {
-  if (command === 'init') console.log('Banco inicializado. Nenhuma senha temporária pública foi habilitada.');
+  if (command === 'init') {
+    // Persist migrations of existing demonstration profiles as well as the schema.
+    await database.store.transaction(() => {});
+    console.log('Banco inicializado e perfis demonstrativos atualizados. O login temporário depende de TEST_LOGIN_ENABLED na API.');
+  }
   else {
     const id = process.argv[3];
     requireThat(['tayane', 'miguel', 'feuzer', 'marcos', 'maria', 'bruno', 'stefanny', 'kleber'].includes(id), 'Informe um login da equipe, como bruno ou tayane.');

@@ -6,4 +6,6 @@ CREATE TABLE IF NOT EXISTS mvp_sessions (token TEXT PRIMARY KEY, user_id TEXT NO
 CREATE INDEX IF NOT EXISTS mvp_sessions_expiry ON mvp_sessions(expires);
 CREATE TABLE IF NOT EXISTS mvp_rate_limits (id TEXT PRIMARY KEY, count INTEGER NOT NULL, expires BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS mvp_neon_identities (subject TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS mvp_test_sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS mvp_test_sessions_expiry ON mvp_test_sessions(expires);
 `;

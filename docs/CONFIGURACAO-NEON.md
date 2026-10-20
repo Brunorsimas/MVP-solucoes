@@ -32,7 +32,27 @@ Esse comando gera explicitamente a demonstração sem backend. Após utilizá-lo
 
 ## Cadastros e especialistas
 
-Clientes usam **Criar conta** e entram com seu email e senha, de 10 a 128 caracteres. O login compartilhado do Neon não usa as senhas públicas `123` dos exemplos locais.
+Clientes usam **Criar conta** e entram com seu email e senha, de 10 a 128 caracteres. As credenciais do Neon Auth continuam individuais. O acesso temporário descrito abaixo é separado do provedor e não altera essas senhas.
+
+### Acesso temporário solicitado para os testes
+
+`neon.ts` configura `TEST_LOGIN_ENABLED: "1"` para habilitar o login por nome ou e-mail de teste e senha **123**: `user`, `tayane`, `miguel`, `feuzer`, `marcos`, `maria`, `bruno`, `stefanny` e `kleber`. Cada perfil demonstrativo recebe `nome@teste.com`, por exemplo `user@teste.com` e `bruno@teste.com`. O formulário aceita texto e apresenta uma lista recolhível dos acessos quando o servidor confirma que esse modo está ativo. Maiúsculas e espaços externos são normalizados; nome e e-mail compartilham o mesmo limite de tentativas.
+
+Os endereços são identificadores fictícios, sem caixas de entrada criadas ou verificadas. Não há envio de mensagens para validar esse acesso temporário. E-mails demonstrativos antigos em `example.test` são migrados; endereços personalizados e cadastros fora da lista são preservados. A senha `123` com um desses aliases usa a sessão de teste; outros e-mails e senhas reais continuam no Neon Auth.
+
+Somente os perfis demonstrativos predefinidos aceitam esse acesso. Cadastros comuns não recebem essa senha. Vincular um perfil a uma identidade real do Neon bloqueia seu acesso pela senha pública, inclusive em sessões temporárias já abertas. Especialistas suspensos também são bloqueados. Bruno entra como especialista, sem o painel administrativo; sua identidade Neon verificada mantém as permissões originais.
+
+O servidor gera sessões aleatórias de oito horas e grava somente seus hashes em `mvp_test_sessions`. O navegador mantém o token na aba (`sessionStorage`), permitindo recarregar a página. Sair revoga a sessão no banco e não restaura silenciosamente uma conta Neon que estivesse aberta antes. Mensagens e arquivos continuam sujeitos às permissões do atendimento. As contas são compartilhadas: qualquer pessoa que conheça um desses logins e a senha poderá ver os dados daquele perfil. Utilize somente dados fictícios.
+
+Para desativar o acesso por nome, altere `TEST_LOGIN_ENABLED` para `"0"` em `neon.ts` e publique a API. As sessões temporárias deixam de ser aceitas imediatamente no novo deployment; email/senha pelo Neon Auth continua funcionando. Antes de publicar essa alteração pela primeira vez, execute a migração `npm run db:init` para criar `mvp_test_sessions`, após validá-la em uma branch de teste.
+
+Prévia local isolada, com o mesmo handler e PostgreSQL embarcado persistente em `data/test-login-preview`, sem conexão ao banco remoto:
+
+```powershell
+npm run preview:test-login
+```
+
+Abra http://127.0.0.1:4190/#/entrar. Nessa prévia somente o acesso demonstrativo está disponível e o horário de abertura é simulado como 10h. O build normal continua apontando para os endpoints do Neon; o comando de prévia gera seu bundle apenas em `artifacts/test-login-preview`, fora do Git. Não execute `neon deploy` nem `git push` até a autorização específica para publicação.
 
 Para ativar cada especialista:
 
@@ -68,7 +88,7 @@ Não execute migrações novas diretamente em `production` sem validá-las prime
 
 O endpoint `/api/*` do Netlify encaminha para a API com o token do usuário. As variáveis de build do `netlify.toml` não são herdadas em runtime: o adaptador reconhece o Netlify por `SITE_ID` e usa as URLs públicas deste projeto como configuração padrão. Não é uma segunda fonte de identidades ou senhas. Os documentos continuam privados no Postgres neste piloto; não foi contratado Object Storage.
 
-O código do frontend ainda precisa ser enviado ao GitHub para o Netlify publicar sua versão atualizada. O deploy no Neon não publica o frontend no Netlify, e as instruções locais exigem autorização específica antes do push.
+O deploy no Neon não publica o frontend no Netlify. A integração inicial já foi enviada ao GitHub; cada nova alteração precisa de autorização específica antes do próximo push ou publicação remota.
 
 ## Retenção e limites
 
