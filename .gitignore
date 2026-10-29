@@ -7,3 +7,6 @@ artifacts/
 !.env.example
 *.log
 .neon
+# Skills baixadas pela CLI do Neon para o agente; não fazem parte do produto.
+.agents/
+skills-lock.json

@@ -58,6 +58,11 @@ test('PostgreSQL: persistência em disco, dispositivos independentes, isolamento
   assert.equal((await client.request('/action', { action: 'upload', payload: { ticketId: id, name: 'recibo.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.4\nFictício').toString('base64'), receipt: true } })).status, 200);
   const file = (await client.request('/state')).body.tickets[0].threads[0].files[0];
   assert.equal((await other.request('/files/' + file.id)).status, 404);
+  const blob = (await db.query('SELECT content::text AS content FROM mvp_state WHERE id=1')).rows[0].content;
+  assert.equal(blob.includes('"data"'), false, 'attachment bytes must stay out of the JSONB state');
+  const download = await handler(new Request('https://piloto.example.test/api/files/' + file.id, { headers: { cookie: client.cookie } }));
+  assert.equal(download.status, 200);
+  assert.equal(Buffer.from(await download.arrayBuffer()).toString(), '%PDF-1.4\nFictício');
   await winner.request('/action', { action: 'confirmReceipt', payload: { ticketId: id, fileId: file.id, proposalId: proposal.id } });
   assert.equal((await winner.request('/action', { action: 'complete', payload: { ticketId: id } })).status, 200);
   assert.equal((await client.request('/action', { action: 'review', payload: { ticketId: id, rating: 5, comment: 'Teste' } })).status, 200);
@@ -74,6 +79,7 @@ test('PostgreSQL: persistência em disco, dispositivos independentes, isolamento
   await store.cleanup('2026-11-20T13:00:00.000Z');
   const expired = (await store.read()).tickets.find(t => t.id === id);
   assert.equal(expired.threads[0].messages.length, 0); assert.equal(expired.threads[0].files.length, 0);
+  assert.equal((await db.query('SELECT id FROM mvp_files')).rows.length, 0, 'purged attachments must leave no bytes behind');
   assert.equal(await store.session(digest(persistedCookie.slice(12)), Date.parse('2026-11-20T13:00:00.000Z')), undefined);
 });
 

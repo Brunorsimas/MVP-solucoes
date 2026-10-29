@@ -8,6 +8,11 @@ import { createLiveUpdates } from '../public/live-updates.js';
 
 const origin = 'https://app.example.test';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Fixed sleeps made this file flaky under load: poll instead of guessing.
+const until = async (condition, label) => {
+  for (let waited = 0; waited < 2000; waited += 5) { if (condition()) return; await delay(5); }
+  throw Error('Tempo esgotado: ' + label);
+};
 const timeout = async promise => {
   let timer;
   try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Live event timeout')), 2000); })]); }
@@ -68,8 +73,8 @@ test('PostgreSQL: notificação só é emitida no commit; rollback e gravação 
       await client.query('BEGIN'); await client.query("UPDATE mvp_state SET content=jsonb_set(content,'{probe}','true') WHERE id=1");
       assert.equal(events.length, 0); await client.query('COMMIT');
     } finally { client.release(); }
-    assert.equal(events.length, 1);
-    await pool.query('UPDATE mvp_state SET content=content WHERE id=1'); assert.equal(events.length, 1);
+    await until(() => events.length === 1, 'notificação após o commit');
+    await pool.query('UPDATE mvp_state SET content=content WHERE id=1'); await delay(50); assert.equal(events.length, 1);
   } finally { await stop(); }
 });
 
@@ -81,14 +86,14 @@ test('Cliente SSE: interpreta frames fragmentados, reconecta e para ao sair, sem
     return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });
   }, onUpdate: () => updates.push('update'), onUnauthorized: () => unauthorized++, onStatus: value => statuses.push(value) });
   t.after(() => live.stop());
-  live.start('user:session'); await delay(5);
+  live.start('user:session'); await until(() => connections.length === 1, 'primeira conexão');
   connections[0].enqueue(encoder.encode('event: rea')); connections[0].enqueue(encoder.encode('dy\ndata: {}\n\nevent: heartbeat\ndata: {}\n\n'));
-  await delay(5); assert.equal(live.status, 'connected'); assert.equal(updates.length, 1);
-  connections[0].enqueue(encoder.encode('event: change\ndata: {}\n\n')); await delay(5); assert.equal(updates.length, 2);
-  connections[0].close(); await delay(25); assert.equal(connections.length, 2);
-  connections[1].enqueue(encoder.encode('event: ready\ndata: {}\n\n')); await delay(5); assert.equal(updates.length, 3);
-  live.stop(); await delay(20); assert.equal(connections.length, 2); assert.equal(live.status, 'stopped');
+  await until(() => updates.length === 1, 'frame fragmentado'); assert.equal(live.status, 'connected');
+  connections[0].enqueue(encoder.encode('event: change\ndata: {}\n\n')); await until(() => updates.length === 2, 'evento change');
+  connections[0].close(); await until(() => connections.length === 2, 'reconexão');
+  connections[1].enqueue(encoder.encode('event: ready\ndata: {}\n\n')); await until(() => updates.length === 3, 'ready após reconectar');
+  live.stop(); await until(() => live.status === 'stopped', 'parada'); await delay(20); assert.equal(connections.length, 2);
   const rejected = createLiveUpdates({ fetchEvents: async () => new Response('{}', { status: 401 }), onUpdate() {}, onUnauthorized: () => unauthorized++ });
-  rejected.start('old:session'); await delay(10); assert.equal(unauthorized, 1); rejected.stop();
+  rejected.start('old:session'); await until(() => unauthorized === 1, 'sessão negada'); rejected.stop();
   assert.ok(statuses.includes('reconnecting'));
 });

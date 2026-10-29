@@ -13,7 +13,7 @@ cd E:\Devs\Projetos\Albinur\mvp-solucoes
 npm start
 ```
 
-Abra **http://127.0.0.1:4173**. Em **Entrar**, use o login `user` e a senha `123` para testar como cliente. Para acompanhar o lado do especialista, use **Trocar conta** e entre com o login correspondente, também com a senha `123`. Os dados ficam em `data/mvp.sqlite`; reiniciar o servidor preserva os registros.
+Abra **http://127.0.0.1:4173** (sem `.env.local` do Neon) ou **http://127.0.0.1:4189** (com as variáveis do Neon, que ativam o modo compartilhado). Em **Entrar**, use o login `user` e a senha `123` para testar como cliente. Para acompanhar o lado do especialista, use **Trocar conta** e entre com o login correspondente, também com a senha `123`. Os dados ficam em `data/mvp.sqlite`; reiniciar o servidor preserva os registros.
 
 O servidor fica restrito ao computador local por padrão. O expediente de demonstração é **10h**, claramente indicado na interface, para permitir testes em qualquer horário. Para usar o relógio real:
 
@@ -187,7 +187,7 @@ O domínio é persistido como um documento JSON no SQLite. Cada mutação ocorre
 
 | Variável | Padrão | Efeito |
 | --- | --- | --- |
-| `PORT` | `4173` | Porta HTTP |
+| `PORT` | `4173` local / `4189` Neon | Porta HTTP; o padrão muda quando `.env.local` traz as variáveis do Neon |
 | `HOST` | `127.0.0.1` | Interface de rede; não expor o modo demo à internet |
 | `DATABASE_PATH` | `data/mvp.sqlite` | Caminho do banco |
 | `DEMO_MODE` | `1` | Perfis demonstrativos e recuperação simulada; `0` desativa |

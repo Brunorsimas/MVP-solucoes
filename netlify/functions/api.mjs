@@ -17,7 +17,8 @@ export default async function handler(request, context) {
     }
     application ||= connectPostgres().then(({ store }) => createSharedHandler({ store, simulatedHour: process.env.PILOT_TIME === '10' ? 10 : null })).catch(error => { application = undefined; throw error; });
     return await (await application)(request, { ip: context.ip });
-  } catch {
+  } catch (error) {
+    console.error('Netlify API failure', { id: context.requestId, code: error.code, name: error.name, message: error.message, stack: error.stack });
     return Response.json({ error: 'O banco compartilhado está indisponível. O administrador precisa conferir a configuração.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }

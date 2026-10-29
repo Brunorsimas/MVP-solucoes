@@ -5,7 +5,9 @@ export default defineConfig({
   auth: true,
   functions: {
     hello: { name: "MVP Soluções API", source: "./functions/mvpapi.mjs", env: {
-      APP_ORIGINS: "https://stellar-tiramisu-56e571.netlify.app,http://localhost:4189,http://127.0.0.1:4189",
+      // Published site plus the local previews: 4189 is `npm start` in Neon mode
+      // and 4180 serves dist/ directly. Any other origin is rejected with 403.
+      APP_ORIGINS: "https://mpv-solucoes.netlify.app,http://localhost:4189,http://127.0.0.1:4189,http://localhost:4180,http://127.0.0.1:4180",
       // Temporary demonstration accounts. Set to "0" and redeploy to disable.
       TEST_LOGIN_ENABLED: "1",
       // Server-only direct connection for LISTEN, never included in the browser.

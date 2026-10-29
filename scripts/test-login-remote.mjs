@@ -7,7 +7,7 @@ const branch = process.env.NEON_BRANCH, api = process.env.NEON_FUNCTION_HELLO_BA
 assert.ok(branch && api, 'Informe a configuração da branch a validar.');
 const exercise = process.argv.includes('--exercise');
 assert.ok(!exercise || branch !== 'production', 'Chamados de teste somente na branch isolada.');
-const sessions = [], origin = 'https://stellar-tiramisu-56e571.netlify.app';
+const sessions = [], origin = process.env.APP_ORIGIN || 'https://mpv-solucoes.netlify.app';
 async function call(path, payload, token, requestOrigin = origin) {
   const response = await fetch(new URL('api' + path, api), { method: payload === undefined ? 'GET' : 'POST', headers: { Origin: requestOrigin, ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: payload === undefined ? undefined : JSON.stringify(payload) });
   return { status: response.status, body: await response.json() };

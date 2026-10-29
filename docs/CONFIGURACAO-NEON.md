@@ -98,7 +98,7 @@ Não execute migrações novas diretamente em `production` sem validá-las prime
 
 ## Hospedagem Netlify
 
-`netlify.toml` contém as duas URLs públicas de produção em `[build.environment]`, permitindo gerar o frontend conectado sem publicar `.env.local`. A política CSP continua ativa e permite apenas os hosts exatos de Auth e Functions, além dos recursos locais. As origens permitidas no Auth e na API incluem o site `https://stellar-tiramisu-56e571.netlify.app` e as prévias locais definidas na configuração.
+`netlify.toml` contém as duas URLs públicas de produção em `[build.environment]`, permitindo gerar o frontend conectado sem publicar `.env.local`. A política CSP continua ativa e permite apenas os hosts exatos de Auth e Functions, além dos recursos locais. As origens permitidas no Auth e na API incluem o site `https://mpv-solucoes.netlify.app` e as prévias locais definidas na configuração (`http://localhost:4189` e `http://127.0.0.1:4189` para `npm start` em modo Neon; `http://localhost:4180` e `http://127.0.0.1:4180` para servir `dist/` diretamente). Qualquer outra origem recebe `403 Origem não permitida.`
 
 O endpoint `/api/*` do Netlify encaminha para a API com o token do usuário. As variáveis de build do `netlify.toml` não são herdadas em runtime: o adaptador reconhece o Netlify por `SITE_ID` e usa as URLs públicas deste projeto como configuração padrão. Não é uma segunda fonte de identidades ou senhas. Os documentos continuam privados no Postgres neste piloto; não foi contratado Object Storage.
 
