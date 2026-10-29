@@ -79,6 +79,21 @@ export async function neonRequest(path, payload) {
     tokenCache = null; setTestAccess(data.token);
     return { ok: true };
   }
+  // Accounts created by the administration live in our own table, not in Neon Auth.
+  if (path === '/auth/login' && !testAlias) {
+    const response = await apiFetch('/auth/password-login', { login: payload.login || payload.email, password: payload.password });
+    if (response.ok) {
+      const data = await response.json();
+      if (!/^mvp-pwd-[a-f0-9]{64}$/.test(data.token)) throw Error('Não foi possível iniciar a sessão.');
+      await revokeTestSession();
+      tokenCache = null; setTestAccess(data.token);
+      return { ok: true };
+    }
+    // 401 means no local account with this password: fall through to Neon Auth.
+    if (response.status !== 401) await jsonResponse(response);
+  }
+  // A local session owns its password here; Managed Neon Auth owns its own below.
+  if (path === '/auth/change-password' && testAccess) return jsonResponse(await apiFetch(path, payload, testAccess));
   if (path === '/auth/logout' && testAccess !== undefined) {
     await revokeTestSession();
     tokenCache = null; setTestAccess('');
@@ -108,6 +123,13 @@ export async function neonRequest(path, payload) {
     return { message: 'Se houver uma conta com este e-mail, siga as instruções de recuperação enviadas pelo Neon Auth.' };
   }
   if (path === '/auth/reset') { checked(await auth.resetPassword({ token: payload.token, newPassword: payload.password })); return { ok: true }; }
+  if (path === '/auth/change-password') {
+    if (payload.password !== payload.confirmPassword) throw Error('A confirmação não corresponde à nova senha.');
+    if (typeof payload.password !== 'string' || payload.password.length < 10 || payload.password.length > 128) throw Error('A senha deve ter de 10 a 128 caracteres.');
+    if (payload.password === payload.currentPassword) throw Error('A nova senha deve ser diferente da atual.');
+    checked(await auth.changePassword({ currentPassword: payload.currentPassword, newPassword: payload.password, revokeOtherSessions: true }));
+    return { ok: true };
+  }
   if (path === '/auth/send-verification') { checked(await auth.emailOtp.sendVerificationOtp({ email: payload.email, type: 'email-verification' })); return { ok: true }; }
   if (path === '/auth/verify-email') { checked(await auth.emailOtp.verifyEmail({ email: payload.email, otp: payload.otp })); return { ok: true }; }
   const response = await neonFetch(path, payload);

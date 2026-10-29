@@ -71,8 +71,10 @@ Perfis profissionais são demonstrativos, sem OAB, CREA, certificações, fotos 
 - Exclusão de mensagens e anexos após 30 dias do encerramento de cada conversa.
 - Notificações internas e indicação explícita de alertas externos simulados.
 - Convite visível para avaliar o especialista após a conclusão, com nota de 1 a 5, comentário opcional e uma avaliação por chamado.
-- Central de suporte, gestão de disponibilidade e suspensão de profissionais.
+- Central de suporte, gestão de disponibilidade e suspensão de profissionais. A suspensão encerra as sessões abertas; ao tentar entrar, a pessoa é orientada a procurar a administração.
+- Troca de senha em **Minha conta → Senha de acesso**, com senha atual, nova senha e confirmação. A troca encerra as demais sessões. Contas de demonstração usam a senha fixa de teste e não têm senha própria.
 - Painel administrativo com metadados operacionais e auditoria, sem leitura geral de chats privados.
+- Administração de contas: criar usuário com senha inicial e troca obrigatória no primeiro acesso, setor e serviços de cada especialista, desativação e exclusão. Clientes e especialistas ficam em listas separadas — a de clientes só oferece suspender e excluir. Administrar é exclusividade do administrador. A exclusão exige digitar o nome exato, anonimiza o perfil e guarda as informações por 360 dias. Nenhuma rotina apaga contas automaticamente. Detalhes em [contas e administração](docs/CONTAS-E-PERMISSOES-2026-10-29.md).
 
 ## Roteiro para testar o fluxo completo
 
@@ -163,6 +165,9 @@ O teste de navegador usa um Chromium/Edge existente com uma porta CDP isolada. N
 ```powershell
 # Primeiro inicie um navegador de teste isolado com --remote-debugging-port=9333.
 node scripts/browser-test.mjs
+
+# Troca de senha, criação de usuário, setor do especialista e exclusão (porta CDP 9345).
+node scripts/admin-users-browser-test.mjs
 ```
 
 O teste cria seu próprio servidor e banco em memória, executa o fluxo completo e salva capturas desktop/mobile e relatório em `artifacts/` (ignorado pelo Git).

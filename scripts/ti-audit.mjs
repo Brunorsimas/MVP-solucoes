@@ -181,12 +181,13 @@ await scenario('Transferência: conversa privada e metadados posteriores isolado
   return { fixed:'P05',formerSpecialist:'bruno',visibleStatus:previous.status,newMessagesVisible:false };
 });
 
-await scenario('Falha: sessão suspensa volta após reativação sem autenticação', async c => {
-  const oldCookie=c.other.cookie();await c.ok(c.pro.action('toggleProfessional',{id:'kleber'}));
+await scenario('Suspensão encerra as sessões abertas e a reativação exige novo login', async c => {
+  await c.ok(c.pro.action('toggleProfessional',{id:'kleber'}));
   assert.equal((await c.other.action('readNotifications')).status,401);
   await c.ok(c.pro.action('toggleProfessional',{id:'kleber'}));
-  assert.equal((await c.other.action('readNotifications')).status,200);assert.equal(c.other.cookie(),oldCookie);
-  finding('TI-05','média segurança',{suspendedRequest:401,reactivatedSameSession:200,newLoginRequired:false});
+  // A sessão anterior foi apagada na suspensão: só um login novo recupera o acesso.
+  assert.equal((await c.other.action('readNotifications')).status,401);
+  finding('TI-05','corrigido',{suspendedRequest:401,reactivatedSameSession:401,newLoginRequired:true});
 });
 
 await scenario('Anexos inválidos, limites, retenção e limite de tentativas', async c => {

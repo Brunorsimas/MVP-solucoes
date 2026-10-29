@@ -133,8 +133,12 @@ async function main() {
     assert.deepEqual(race.map(r => r.status).sort(), [200, 409]);
     await ok(admin.action('toggleProfessional', { id: legalId })); assert.equal((await legal.action('readNotifications')).status, 401);
     await ok(admin.action('toggleProfessional', { id: legalId }));
+    // A suspensão encerra as sessões abertas, então a reativação exige um novo login.
+    assert.equal((await legal.action('readNotifications')).status, 401);
+    evidence.push({ id: 'SESSION-REVOCATION', suspensionEndsOpenSessions: true, reactivationRequiresNewLogin: true });
+    assert.equal((await legal('/auth/login', { login: credentials.legal.email, password: credentials.legal.password })).status, 200);
     assert.equal((await legal.action('readNotifications')).status, 200);
-    finding('SESSION-REACTIVATION', 'A sessão anterior à suspensão volta a funcionar após reativação; sem novo login.');
+    finding('SESSION-REACTIVATION-FIXED', 'A suspensão encerra as sessões abertas; após a reativação é preciso entrar novamente.');
   });
 
   await scenario('Confirmação de pagamento após mudança da proposta', async c => {

@@ -1,12 +1,13 @@
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLiveEvents, memoryNotifications } from './lib/live-events.mjs';
 import { sendNodeResponse } from './lib/node-response.mjs';
-import { act, createState, normalizeState, demoUser, DEMO_PASSWORD, projectState, purgeExpired, fail, requireThat, uid, businessOpen } from './public/domain.js';
+import { passwordCredentials, passwordMatches } from './lib/passwords.mjs';
+import { act, createState, normalizeState, demoUser, DEMO_PASSWORD, projectState, purgeExpired, fail, requireThat, uid, businessOpen, initialsOf } from './public/domain.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.webmanifest': 'application/manifest+json' };
@@ -69,15 +70,14 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
         }
         cleanup();
         const currentSession = session(req); const state = load(); const user = currentSession ? state.users.find(u => u.id === currentSession.user_id && u.active) : null;
-        if (req.method === 'GET' && url.pathname === '/api/state') return json(res, { ...projectState(state, user), csrf: currentSession?.csrf, config: { mode: demo ? 'local-demo' : 'local', live: 'sse', simulatedHour: demo ? simulatedHour : null, open: businessOpen(new Date(now()), demo ? simulatedHour : null), serverTime: now(), externalNotifications: false, retentionDays: 30 } });
+        if (req.method === 'GET' && url.pathname === '/api/state') return json(res, { ...projectState(state, user, { now: now() }), csrf: currentSession?.csrf, config: { mode: demo ? 'local-demo' : 'local', live: 'sse', simulatedHour: demo ? simulatedHour : null, open: businessOpen(new Date(now()), demo ? simulatedHour : null), serverTime: now(), externalNotifications: false, retentionDays: 30 } });
         if (req.method === 'POST' && url.pathname === '/api/auth/register') {
           throttle(req, 'register', 10); const data = await body(req); const email = String(data.email || '').trim().toLowerCase();
           requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length < 255, 'Informe um e-mail válido.');
-          requireThat(typeof data.password === 'string' && data.password.length >= 10 && data.password.length <= 128, 'A senha deve ter de 10 a 128 caracteres.');
           requireThat(String(data.name || '').trim().length >= 2 && data.agreed === true, 'Informe seu nome e aceite os termos.');
           requireThat(!state.users.some(u => u.email === email), 'Não foi possível criar a conta com este e-mail.', 409);
-          const id = uid(); const salt = randomBytes(16).toString('hex'); const hash = scryptSync(data.password, salt, 64).toString('hex');
-          transact(s => { s.users.push({ id, name: data.name.trim().slice(0, 70), initials: data.name.trim().split(/\s+/).slice(0, 2).map(n => n[0]).join('').toUpperCase(), email, role: 'client', active: true, available: true, createdAt: now(), termsAcceptedAt: now() }); db.prepare('INSERT INTO accounts VALUES(?,?,?,?)').run(id, email, salt, hash); });
+          const id = uid(); const { salt, hash } = passwordCredentials(data.password);
+          transact(s => { s.users.push({ id, name: data.name.trim().slice(0, 70), initials: initialsOf(data.name), email, role: 'client', active: true, available: true, createdAt: now(), termsAcceptedAt: now() }); db.prepare('INSERT INTO accounts VALUES(?,?,?,?)').run(id, email, salt, hash); });
           return json(res, { csrf: startSession(res, id), message: 'Conta de teste criada. Verificação externa de e-mail ainda não configurada.' }, 201);
         }
         if (req.method === 'POST' && url.pathname === '/api/auth/login') {
@@ -85,12 +85,14 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
           const login = String(data.login || data.email || '').trim().toLowerCase();
           const target = demo ? demoUser(state, login) : null;
           if (target) {
-            requireThat(target.active && data.password === DEMO_PASSWORD, 'Usuário ou senha inválidos.', 401);
+            requireThat(data.password === DEMO_PASSWORD, 'Usuário ou senha inválidos.', 401);
+            requireThat(target.active, 'Usuário desativado, entre em contato como administrador do sistema.', 403);
             return json(res, { csrf: startSession(res, target.id) });
           }
           const account = db.prepare('SELECT * FROM accounts WHERE email=?').get(login);
-          const hash = scryptSync(String(data.password || '').slice(0, 128), account?.salt || 'dummy-salt', 64);
-          requireThat(account && timingSafeEqual(hash, Buffer.from(account.hash, 'hex')) && state.users.find(u => u.id === account.user_id)?.active, 'E-mail ou senha inválidos.', 401);
+          requireThat(passwordMatches(account, data.password), 'E-mail ou senha inválidos.', 401);
+          // Checked after the password so this never reveals which logins exist.
+          requireThat(state.users.find(u => u.id === account.user_id)?.active, 'Usuário desativado, entre em contato como administrador do sistema.', 403);
           return json(res, { csrf: startSession(res, account.user_id) });
         }
         if (req.method === 'POST' && url.pathname === '/api/auth/recover') {
@@ -101,7 +103,7 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
         if (req.method === 'POST' && url.pathname === '/api/auth/reset') {
           throttle(req, 'reset', 10); const data = await body(req); const row = db.prepare('SELECT * FROM reset_tokens WHERE token=? AND expires>?').get(tokenHash(String(data.token || '')), Date.now());
           requireThat(row, 'Código inválido ou expirado.'); requireThat(typeof data.password === 'string' && data.password.length >= 10 && data.password.length <= 128, 'Use de 10 a 128 caracteres.');
-          const salt = randomBytes(16).toString('hex'); db.prepare('UPDATE accounts SET salt=?,hash=? WHERE user_id=?').run(salt, scryptSync(data.password, salt, 64).toString('hex'), row.user_id); db.prepare('DELETE FROM reset_tokens WHERE user_id=?').run(row.user_id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id); return json(res, { ok: true });
+          const reset = passwordCredentials(data.password); db.prepare('UPDATE accounts SET salt=?,hash=? WHERE user_id=?').run(reset.salt, reset.hash, row.user_id); db.prepare('DELETE FROM reset_tokens WHERE user_id=?').run(row.user_id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id); return json(res, { ok: true });
         }
         requireThat(user, 'Entre na sua conta para continuar.', 401);
         if (req.method === 'GET' && url.pathname === '/api/events') {
@@ -116,6 +118,22 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
         }
         if (req.method !== 'GET') requireThat(req.headers['x-csrf-token'] === currentSession.csrf, 'Sua sessão mudou. Atualize a página.', 403);
         if (req.method === 'POST' && url.pathname === '/api/auth/logout') { db.prepare('DELETE FROM sessions WHERE token=?').run(currentSession.token); res.setHeader('Set-Cookie', 'mvp_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return json(res, { ok: true }); }
+        if (req.method === 'POST' && url.pathname === '/api/auth/change-password') {
+          throttle(req, 'change-password', 10); const data = await body(req);
+          const account = db.prepare('SELECT * FROM accounts WHERE user_id=?').get(user.id);
+          requireThat(account, 'Esta conta de demonstração usa a senha fixa de teste e não possui senha própria.', 409);
+          requireThat(passwordMatches(account, data.currentPassword), 'A senha atual não confere.', 403);
+          requireThat(data.password === data.confirmPassword, 'A confirmação não corresponde à nova senha.');
+          requireThat(data.password !== data.currentPassword, 'A nova senha deve ser diferente da atual.');
+          const credentials = passwordCredentials(data.password);
+          transact(s => {
+            const target = s.users.find(u => u.id === user.id); delete target.mustChangePassword;
+            db.prepare('UPDATE accounts SET salt=?,hash=? WHERE user_id=?').run(credentials.salt, credentials.hash, user.id);
+            // Other sessions still carry the old password; only this one survives.
+            db.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').run(user.id, currentSession.token);
+          });
+          return json(res, { ok: true });
+        }
         if (req.method === 'POST' && url.pathname === '/api/action') {
           const data = await body(req);
           if (data.action === 'upload') {
@@ -124,7 +142,15 @@ export function createApp({ database = join(root, 'data', 'mvp.sqlite'), demo = 
             const type = data.payload?.type;
             requireThat((type === 'application/pdf' && file.subarray(0, 5).toString() === '%PDF-') || (type === 'image/png' && file.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') || (type === 'image/jpeg' && file[0] === 255 && file[1] === 216 && file[2] === 255), 'O conteúdo do arquivo não corresponde ao formato informado.');
           }
-          const result = transact(s => act(s, s.users.find(u => u.id === user.id), data.action, data.payload, { now: now(), hour: demo ? simulatedHour : null }));
+          // Validated before the transaction so a weak password never creates a profile.
+          const credentials = data.action === 'createUser' ? passwordCredentials(data.payload?.password) : null;
+          const result = transact(s => {
+            const outcome = act(s, s.users.find(u => u.id === user.id), data.action, data.payload, { now: now(), hour: demo ? simulatedHour : null });
+            if (credentials) db.prepare('INSERT INTO accounts VALUES(?,?,?,?)').run(outcome.userId, outcome.login, credentials.salt, credentials.hash);
+            if (data.action === 'deleteUser') { db.prepare('DELETE FROM accounts WHERE user_id=?').run(data.payload.id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(data.payload.id); }
+            if (data.action === 'toggleProfessional' && !s.users.find(u => u.id === data.payload.id)?.active) db.prepare('DELETE FROM sessions WHERE user_id=?').run(data.payload.id);
+            return outcome;
+          });
           return json(res, { ok: true, result });
         }
         if (req.method === 'GET' && url.pathname.startsWith('/api/files/')) {

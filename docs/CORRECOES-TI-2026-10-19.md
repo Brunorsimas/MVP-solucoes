@@ -25,6 +25,6 @@ Evidências locais: `artifacts/auditoria/ti-corrections-browser-results.json`, `
 
 ## Itens da auditoria fora desta solicitação
 
-Permanecem documentados os acessos compartilhados de demonstração, recuperação simulada, armazenamento da versão estática, enumeração de e-mail e reutilização de sessão após reativação de perfil (TI-05). Esta entrega não os classifica como corrigidos.
+Permanecem documentados os acessos compartilhados de demonstração, recuperação simulada, armazenamento da versão estática e enumeração de e-mail. Esta entrega não os classifica como corrigidos. A reutilização de sessão após reativação de perfil (TI-05) foi corrigida depois, em [contas e permissões](CONTAS-E-PERMISSOES-2026-10-29.md).
 
 Nenhum envio ao GitHub foi realizado.

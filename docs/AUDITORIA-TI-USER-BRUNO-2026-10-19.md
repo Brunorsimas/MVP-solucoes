@@ -1,6 +1,6 @@
 # Auditoria funcional e de segurança — user e Bruno — 19/10/2026
 
-**Atualização:** TI-01, TI-02, TI-03, TI-04 e P05 foram corrigidos e retestados. Veja [as correções e suas regras](CORRECOES-TI-2026-10-19.md). O conteúdo abaixo preserva a reprodução histórica das falhas. TI-05 e os demais riscos demonstrativos continuam pendentes.
+**Atualização:** TI-01, TI-02, TI-03, TI-04 e P05 foram corrigidos e retestados. Veja [as correções e suas regras](CORRECOES-TI-2026-10-19.md). O conteúdo abaixo preserva a reprodução histórica das falhas. TI-05 foi corrigido em [contas e permissões](CONTAS-E-PERMISSOES-2026-10-29.md); os demais riscos demonstrativos continuam pendentes.
 
 O fluxo principal de TI foi testado com **user / 123** e **bruno / 123**, em servidor e navegador locais, com chamados e documentos inteiramente fictícios. Foram reproduzidos os problemas abaixo. Este documento é um relatório para correção; o comportamento da aplicação não foi alterado nesta auditoria.
 
