@@ -8,8 +8,10 @@ export default defineConfig({
       // Published site plus the local previews: 4189 is `npm start` in Neon mode
       // and 4180 serves dist/ directly. Any other origin is rejected with 403.
       APP_ORIGINS: "https://mpv-solucoes.netlify.app,http://localhost:4189,http://127.0.0.1:4189,http://localhost:4180,http://127.0.0.1:4180",
-      // Temporary demonstration accounts. Set to "0" and redeploy to disable.
-      TEST_LOGIN_ENABLED: "1",
+      // Demonstration accounts, disabled in production: the shared password `123`
+      // would let anyone read other people's tickets, messages and attachments.
+      // Set to "1" and redeploy only on a test branch, never on production.
+      TEST_LOGIN_ENABLED: "0",
       // Server-only direct connection for LISTEN, never included in the browser.
       ...(process.env.DATABASE_URL_UNPOOLED ? { LIVE_DATABASE_URL: process.env.DATABASE_URL_UNPOOLED } : {}),
       ...(process.env.PILOT_TIME ? { PILOT_TIME: process.env.PILOT_TIME } : {}),
